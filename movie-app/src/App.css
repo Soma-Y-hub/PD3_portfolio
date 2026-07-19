@@ -2494,431 +2494,248 @@ button:disabled {
     max-height: 360px;
     overflow-y: auto;
   }
-}
-
-/* =========================================================
-   振り返り画面：左側タイムラプス＋活動の流れを必ず表示
-   App.css の一番下に追加
-   ========================================================= */
-
-.reflection-dialog.left-timelapse-layout {
-  width: min(1540px, 98vw);
-  height: min(92vh, 920px);
-  max-height: 92vh;
-}
-
-.left-timelapse-layout .reflection-content {
-  flex: 1 1 auto;
-  min-height: 0;
+}.board-media-item {
+  position: absolute;
+  min-width: 120px;
+  min-height: 90px;
   overflow: hidden;
-
-  display: grid;
-  grid-template-columns: minmax(470px, 0.9fr) minmax(520px, 1.1fr);
+  border: 2px solid #ffffff;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  z-index: 15;
 }
 
-.left-timelapse-layout .activity-history-panel-with-timelapse {
+.board-media-item img,
+.board-media-item video {
+  display: block;
+  width: 100%;
   height: 100%;
-  min-height: 0;
+  object-fit: contain;
+  background: #111111;
+}
 
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-
+.board-media-caption {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  left: 6px;
+  padding: 4px 8px;
   overflow: hidden;
-
-  padding: 16px;
-  border-right: 1px solid #e4e7ec;
-  background: #f7f8fa;
-}
-
-/* 左上のミニタイムラプスを小さめに固定 */
-.left-timelapse-layout .left-side-timelapse,
-.left-timelapse-layout .reflection-mini-timelapse-panel {
-  flex: 0 0 auto;
-  min-height: 0;
-  max-height: none;
-  margin-bottom: 4px;
-}
-
-/* ミニタイムラプスのヘッダー */
-.left-timelapse-layout .reflection-mini-timelapse-header {
-  padding: 8px 10px;
-}
-
-.left-timelapse-layout .reflection-mini-timelapse-header strong {
-  font-size: 13px;
-}
-
-.left-timelapse-layout .reflection-mini-timelapse-header span {
-  font-size: 11px;
-}
-
-/* 操作ボタン部分を詰める */
-.left-timelapse-layout .reflection-mini-timelapse-controls {
-  padding: 6px 8px;
-  gap: 6px;
-}
-
-.left-timelapse-layout .reflection-mini-timelapse-controls button,
-.left-timelapse-layout .reflection-mini-timelapse-controls select {
-  min-height: 28px;
-  padding: 4px 7px;
-  font-size: 11px;
-}
-
-/* ミニタイムラプス本体の高さを抑える */
-.left-timelapse-layout .reflection-mini-timelapse-board {
-  height: 180px;
-  min-height: 180px;
-  max-height: 180px;
-  overflow: hidden;
-}
-
-/* 中のボードを縮小 */
-.left-timelapse-layout .reflection-mini-timelapse-canvas {
-  transform: scale(0.18);
-  transform-origin: top left;
-}
-
-/* キーポイント説明が長すぎて下を押し出さないようにする */
-.left-timelapse-layout .reflection-mini-keypoint-banner {
-  padding: 6px 9px;
-  max-height: 72px;
-  overflow: hidden;
-}
-
-.left-timelapse-layout .reflection-mini-keypoint-banner p {
-  margin: 3px 0 0;
-  line-height: 1.35;
-  font-size: 11px;
-}
-
-/* 「活動の流れの目印」の見出し */
-.left-timelapse-layout .activity-history-heading {
-  flex: 0 0 auto;
-  margin-bottom: 6px;
-}
-
-.left-timelapse-layout .activity-history-heading h3 {
-  font-size: 17px;
-}
-
-.left-timelapse-layout .activity-history-heading p {
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-/* 集計カードを詰める */
-.left-timelapse-layout .keypoint-summary {
-  flex: 0 0 auto;
-  margin-bottom: 8px;
-  gap: 6px;
-}
-
-.left-timelapse-layout .keypoint-summary-item {
-  padding: 7px 4px;
-}
-
-.left-timelapse-layout .keypoint-summary-item strong {
-  font-size: 17px;
-}
-
-.left-timelapse-layout .keypoint-summary-item span {
-  font-size: 10px;
-}
-
-/* 重要：活動の流れ一覧だけをスクロールさせる */
-.left-timelapse-layout .activity-history-list {
-  flex: 1 1 auto;
-  min-height: 160px;
-  overflow-y: auto;
-
-  padding-top: 2px;
-  padding-right: 4px;
-  padding-bottom: 28px;
-}
-
-/* 目印1件あたりも少し詰める */
-.left-timelapse-layout .activity-history-item {
-  margin-bottom: 9px;
-  padding: 10px 11px 10px 13px;
-}
-
-.left-timelapse-layout .activity-history-description {
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.left-timelapse-layout .friendly-detail,
-.left-timelapse-layout .activity-history-hint,
-.left-timelapse-layout .activity-history-target-detail,
-.left-timelapse-layout .activity-history-change-detail {
-  margin-top: 6px;
-  padding: 7px 8px;
+  color: #ffffff;
   font-size: 12px;
-  line-height: 1.45;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.65);
+  pointer-events: none;
 }
 
-/* 右側の自由記述欄 */
-.left-timelapse-layout .reflection-writing-panel {
-  height: 100%;
-  min-height: 0;
+.board-media-drag-handle {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  padding: 5px 12px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.68);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
 
+.board-media-drag-handle:active {
+  cursor: grabbing;
+}
+
+.board-media-item {
+  touch-action: none;
+}
+
+.board-media-item video {
+  touch-action: auto;
+}
+
+.board-media-delete-button {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 4;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  color: #ffffff;
+  background: rgba(190, 36, 36, 0.88);
+  font-size: 23px;
+  line-height: 32px;
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.26);
+  touch-action: manipulation;
+}
+
+.board-media-delete-button:hover {
+  background: rgba(155, 20, 20, 0.96);
+}
+
+.board-media-delete-button:focus-visible {
+  outline: 3px solid rgba(255, 255, 255, 0.95);
+  outline-offset: 2px;
+}
+
+/* 振り返りポイント */
+.board-media-item.is-reflection-point {
+  outline: 4px solid #f6c945;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px rgba(246, 201, 69, 0.2), 0 6px 18px rgba(0, 0, 0, 0.24);
+}
+
+.media-reflection-button {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  z-index: 5;
+  padding: 6px 9px;
+  border: 1px solid rgba(255,255,255,.8);
+  border-radius: 8px;
+  color: #3c3200;
+  background: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.media-reflection-button.active {
+  background: #f6c945;
+  border-color: #f6c945;
+}
+
+.board-media-caption {
   display: flex;
   flex-direction: column;
+  gap: 2px;
+}
 
+.board-media-caption small {
   overflow: hidden;
+  font-size: 11px;
+  font-weight: 500;
+  opacity: .95;
+  text-overflow: ellipsis;
 }
 
-.left-timelapse-layout .reflection-goal-card-wide {
-  flex: 0 0 auto;
+.board-media-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  width: 28px;
+  height: 28px;
+  border-radius: 12px 0 8px 0;
+  background: linear-gradient(135deg, transparent 45%, rgba(255,255,255,.95) 46%, rgba(255,255,255,.95) 56%, transparent 57%),
+              linear-gradient(135deg, transparent 65%, rgba(255,255,255,.95) 66%, rgba(255,255,255,.95) 76%, transparent 77%);
+  cursor: nwse-resize;
+  touch-action: none;
 }
 
-.left-timelapse-layout .reflection-writing-panel textarea {
-  flex: 1 1 auto;
-  min-height: 0;
-  height: auto;
+.keypoint-media-created .keypoint-marker,
+.keypoint-media-edited .keypoint-marker,
+.keypoint-media-deleted .keypoint-marker,
+.keypoint-media-reflection .keypoint-marker,
+.keypoint-media-unmarked .keypoint-marker {
+  font-weight: 700;
 }
-
-.left-timelapse-layout .reflection-writing-footer {
-  flex: 0 0 auto;
-}
-
-/* 横幅が狭い場合 */
-@media (max-width: 1250px) {
-  .reflection-dialog.left-timelapse-layout {
-    height: 96vh;
-  }
-
-  .left-timelapse-layout .reflection-content {
-    grid-template-columns: 1fr;
-    overflow-y: auto;
-  }
-
-  .left-timelapse-layout .activity-history-panel-with-timelapse {
-    height: auto;
-    overflow: visible;
-    border-right: 0;
-    border-bottom: 1px solid #e4e7ec;
-  }
-
-  .left-timelapse-layout .activity-history-list {
-    max-height: 360px;
-    overflow-y: auto;
-  }
-
-  .left-timelapse-layout .reflection-writing-panel {
-    min-height: 520px;
-  }
-}
-
 
 /* =========================================================
-   振り返り画面：3カラム配置
-   左：ボード全体のタイムラプス
-   中：活動の流れの目印
-   右：振り返り記述欄
-   App.css の一番下に追加
+   振り返り画面：確実な3列構成
+   左＝タイムラプス／中央＝活動の流れ／右＝振り返り
    ========================================================= */
-
 .reflection-dialog.three-column-reflection {
-  width: min(1560px, 98vw);
+  width: min(1780px, 98vw);
   height: min(92vh, 920px);
   max-height: 92vh;
 }
 
-.three-column-reflection .reflection-content {
+.reflection-dialog.three-column-reflection .reflection-content {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
   display: grid;
   grid-template-columns:
     minmax(360px, 0.9fr)
-    minmax(360px, 0.9fr)
-    minmax(460px, 1.2fr);
+    minmax(350px, 0.82fr)
+    minmax(420px, 1fr);
+  overflow: hidden;
 }
 
-/* 左カラム：タイムラプス専用 */
-.three-column-reflection .reflection-timelapse-column {
+.three-column-reflection .reflection-timelapse-column,
+.three-column-reflection .activity-flow-column,
+.three-column-reflection .writing-only-panel {
   min-width: 0;
   min-height: 0;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-  border-right: 1px solid #e4e7ec;
-  background: #f7f8fa;
-  overflow: hidden;
 }
 
-.three-column-reflection .left-side-timelapse,
+.three-column-reflection .reflection-timelapse-column {
+  padding: 18px;
+  overflow: hidden;
+  border-right: 1px solid #e4e7ec;
+  background: #f8fafc;
+}
+
 .three-column-reflection .reflection-mini-timelapse-panel {
-  flex: 1 1 auto;
-  min-height: 0;
   height: 100%;
   margin: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.three-column-reflection .reflection-mini-timelapse-header {
-  flex: 0 0 auto;
-  padding: 10px 12px;
-}
-
-.three-column-reflection .reflection-mini-timelapse-controls {
-  flex: 0 0 auto;
-  padding: 8px 10px;
-  gap: 7px;
-}
-
-.three-column-reflection .reflection-mini-timelapse-controls button,
-.three-column-reflection .reflection-mini-timelapse-controls select,
-.three-column-reflection .reflection-mini-timelapse-header button {
-  min-height: 30px;
-  padding: 5px 8px;
-  font-size: 12px;
-}
-
-.three-column-reflection .reflection-mini-range-wrap {
-  min-width: 120px;
-}
-
-.three-column-reflection .reflection-mini-keypoint-banner {
-  flex: 0 0 auto;
-  max-height: 88px;
-  overflow: hidden;
-  padding: 8px 10px;
-}
-
-.three-column-reflection .reflection-mini-keypoint-banner p {
-  margin: 4px 0 0;
-  line-height: 1.4;
-  font-size: 12px;
 }
 
 .three-column-reflection .reflection-mini-timelapse-board {
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
-  overflow: hidden;
 }
 
 .three-column-reflection .reflection-mini-timelapse-canvas {
-  transform: scale(0.23);
-  transform-origin: top left;
+  transform: scale(0.255);
 }
 
-/* 中カラム：活動の流れ専用 */
 .three-column-reflection .activity-flow-column {
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-  border-right: 1px solid #e4e7ec;
-  background: #f7f8fa;
   overflow: hidden;
-}
-
-.three-column-reflection .activity-flow-column .activity-history-heading,
-.three-column-reflection .activity-flow-column .keypoint-summary {
-  flex: 0 0 auto;
-}
-
-.three-column-reflection .activity-flow-column .activity-history-heading {
-  margin-bottom: 8px;
-}
-
-.three-column-reflection .activity-flow-column .activity-history-heading h3 {
-  font-size: 17px;
-}
-
-.three-column-reflection .activity-flow-column .activity-history-heading p {
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.three-column-reflection .activity-flow-column .keypoint-summary {
-  margin-bottom: 10px;
-  gap: 6px;
-}
-
-.three-column-reflection .activity-flow-column .keypoint-summary-item {
-  padding: 7px 4px;
-}
-
-.three-column-reflection .activity-flow-column .keypoint-summary-item strong {
-  font-size: 17px;
-}
-
-.three-column-reflection .activity-flow-column .keypoint-summary-item span {
-  font-size: 10px;
+  border-right: 1px solid #e4e7ec;
+  border-bottom: 0;
 }
 
 .three-column-reflection .activity-flow-column .activity-history-list {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding-top: 2px;
-  padding-right: 4px;
-  padding-bottom: 28px;
 }
 
-.three-column-reflection .activity-flow-column .activity-history-item {
-  margin-bottom: 10px;
-  padding: 10px 11px 10px 13px;
-}
-
-.three-column-reflection .activity-flow-column .activity-history-description {
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.three-column-reflection .activity-flow-column .friendly-detail,
-.three-column-reflection .activity-flow-column .activity-history-hint,
-.three-column-reflection .activity-flow-column .activity-history-target-detail,
-.three-column-reflection .activity-flow-column .activity-history-change-detail {
-  margin-top: 6px;
-  padding: 7px 8px;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-/* 右カラム：振り返り記述欄 */
-.three-column-reflection .reflection-writing-panel {
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+.three-column-reflection .writing-only-panel {
   overflow: hidden;
-  padding: 16px 18px 18px;
 }
 
-.three-column-reflection .reflection-goal-card-wide {
-  flex: 0 0 auto;
-  margin-bottom: 10px;
-}
-
-.three-column-reflection .reflection-writing-panel textarea {
+.three-column-reflection .writing-only-panel textarea {
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
+  resize: none;
 }
 
-.three-column-reflection .reflection-writing-footer {
-  flex: 0 0 auto;
-}
-
-/* 画面幅が足りない場合は縦並びにする */
-@media (max-width: 1250px) {
+@media (max-width: 1180px) {
   .reflection-dialog.three-column-reflection {
-    height: 96vh;
+    width: min(980px, 98vw);
+    height: auto;
+    max-height: 96vh;
   }
 
-  .three-column-reflection .reflection-content {
+  .reflection-dialog.three-column-reflection .reflection-content {
     grid-template-columns: 1fr;
     overflow-y: auto;
   }
@@ -2926,38 +2743,57 @@ button:disabled {
   .three-column-reflection .reflection-timelapse-column,
   .three-column-reflection .activity-flow-column {
     height: auto;
-    min-height: auto;
+    max-height: none;
     border-right: 0;
     border-bottom: 1px solid #e4e7ec;
   }
 
   .three-column-reflection .reflection-mini-timelapse-board {
-    height: 260px;
-    min-height: 260px;
+    height: 280px;
   }
 
   .three-column-reflection .activity-flow-column .activity-history-list {
     max-height: 360px;
   }
 
-  .three-column-reflection .reflection-writing-panel {
-    min-height: 520px;
+  .three-column-reflection .writing-only-panel textarea {
+    min-height: 360px;
   }
 }
 
-@media (max-width: 700px) {
-  .three-column-reflection .reflection-timelapse-column,
-  .three-column-reflection .activity-flow-column,
-  .three-column-reflection .reflection-writing-panel {
-    padding: 12px;
-  }
+/* App.css の末尾に追加してください */
 
-  .three-column-reflection .reflection-mini-timelapse-board {
-    height: 220px;
-    min-height: 220px;
-  }
+/* 写真・動画が登場したイベント */
+.timelapse-keypoint-media-created {
+  border-color: #22c55e !important;
+  background: #ecfdf5 !important;
+  color: #166534 !important;
+}
 
-  .three-column-reflection .reflection-mini-timelapse-canvas {
-    transform: scale(0.2);
-  }
+/* 写真・動画が削除されたイベント */
+.timelapse-keypoint-media-deleted {
+  border-color: #ef4444 !important;
+  background: #fef2f2 !important;
+  color: #991b1b !important;
+}
+
+.activity-history-item.keypoint-timelapse-keypoint-media-created {
+  border-left: 5px solid #22c55e !important;
+}
+
+.activity-history-item.keypoint-timelapse-keypoint-media-deleted {
+  border-left: 5px solid #ef4444 !important;
+}
+
+.timelapse-keypoint-dot.timelapse-keypoint-media-created {
+  background: #22c55e !important;
+}
+
+.timelapse-keypoint-dot.timelapse-keypoint-media-deleted {
+  background: #ef4444 !important;
+}
+
+/* 項目数が6個になっても収まりやすくする */
+.three-column-reflection .activity-flow-column .keypoint-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }

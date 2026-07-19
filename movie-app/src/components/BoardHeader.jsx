@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 export default function BoardHeader({
   boardId,
   currentUser,
@@ -5,6 +7,7 @@ export default function BoardHeader({
   reflectionRecord,
   historyLoading,
   onAddCard,
+  onUploadMedia,
   onToggleConnectMode,
   onOpenMembers,
   onOpenCards,
@@ -16,6 +19,12 @@ export default function BoardHeader({
   onLeaveBoard,
   onLogout
 }) {
+  const mediaInputRef = useRef(null);
+
+  const openMediaPicker = () => {
+    mediaInputRef.current?.click();
+  };
+
   return (
     <header className="header">
       <div>
@@ -29,6 +38,18 @@ export default function BoardHeader({
       <div className="header-buttons">
         <button className="add-button" onClick={onAddCard}>
           ＋ 付箋追加
+        </button>
+
+        <input
+          ref={mediaInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime"
+          onChange={onUploadMedia}
+          hidden
+        />
+
+        <button className="add-button" onClick={openMediaPicker}>
+          ＋ 画像・動画
         </button>
 
         <button

@@ -46,11 +46,14 @@ import {
 } from "./utils/activityUtils";
 import { createPlaybackState } from "./utils/playbackUtils";
 import { drawSegmentOnCanvas, resizeCanvasToDisplaySize } from "./utils/drawingUtils";
+import { uploadMedia, deleteMediaFile } from "./services/mediaService";
 
 export default function App() {
   const boardRef = useRef(null);
   const drawingRef = useRef({ isDrawing: false });
   const moveHistoryRef = useRef(null);
+  const mediaMoveRef = useRef(null);
+  const mediaResizeRef = useRef(null);
   const resizeHistoryRef = useRef(null);
   const animationFrameRef = useRef(null);
   const previousFrameTimeRef = useRef(null);
@@ -69,12 +72,15 @@ export default function App() {
   const [boardId, setBoardId] = useState("");
 
   const [cards, setCards] = useState({});
+  const [mediaItems, setMediaItems] = useState({});
   const [members, setMembers] = useState({});
   const [connections, setConnections] = useState({});
   const [allBoards, setAllBoards] = useState({});
 
   const [screen, setScreen] = useState("board");
   const [movingCard, setMovingCard] = useState(null);
+  const [movingMedia, setMovingMedia] = useState(null);
+  const [resizingMedia, setResizingMedia] = useState(null);
   const [resizingCard, setResizingCard] = useState(null);
 
   const [connectMode, setConnectMode] = useState(false);
@@ -133,6 +139,9 @@ export default function App() {
       setConnections(snapshot.val() || {});
     });
 
+    const unsubMedia = onValue(ref(db, `boards/${boardId}/media`), (snapshot) => {
+      setMediaItems(snapshot.val() || {});
+    });
 
     const unsubActivities = onValue(ref(db, `boards/${boardId}/activityEvents`), (snapshot) => {
       const events = [];
@@ -167,6 +176,7 @@ export default function App() {
       unsubCards();
       unsubMembers();
       unsubConnections();
+      unsubMedia();
       unsubActivities();
       unsubReflection();
     };
@@ -357,18 +367,36 @@ export default function App() {
     };
   }, [isPlaying, playbackSpeed, playbackDuration, historyEvents]);
 
-  const addHistoryEvent = async ({ type, cardId = null, connectionId = null, payload = {} }) => {
+  const addHistoryEvent = async ({
+    type,
+    cardId = null,
+    connectionId = null,
+    payload = {},
+    includeInActivity = false
+  }) => {
     if (!boardId || !currentUserId || !currentUser) return;
 
     const historyRef = push(ref(db, `boards/${boardId}/history`));
-    await set(historyRef, {
+    const timestamp = serverTimestamp();
+    const eventData = {
       type,
       cardId,
       connectionId,
       userId: currentUserId,
       userName: currentUser.name,
       payload,
-      timestamp: serverTimestamp()
+      timestamp
+    };
+
+    if (!includeInActivity) {
+      await set(historyRef, eventData);
+      return;
+    }
+
+    const activityRef = push(ref(db, `boards/${boardId}/activityEvents`));
+    await update(ref(db, `boards/${boardId}`), {
+      [`history/${historyRef.key}`]: eventData,
+      [`activityEvents/${activityRef.key}`]: eventData
     });
   };
 
@@ -404,6 +432,7 @@ export default function App() {
     setBoardId("");
     setBoardInput("");
     setCards({});
+    setMediaItems({});
     setMembers({});
     setConnections({});
     setActivityEvents([]);
@@ -416,6 +445,8 @@ export default function App() {
     reflectionStartedAtRef.current = null;
     reflectionAccumulatedDurationRef.current = 0;
     setMovingCard(null);
+    setMovingMedia(null);
+    setResizingMedia(null);
     setResizingCard(null);
     setConnectMode(false);
     setConnectFrom(null);
@@ -512,6 +543,8 @@ export default function App() {
       type: "idea"
     };
 
+    
+
     await update(ref(db, `boards/${boardId}`), {
       [`cards/${cardRef.key}`]: {
         ...cardData,
@@ -536,7 +569,60 @@ export default function App() {
       }
     });
   };
+const handleUpload = async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
 
+  try {
+    const result = await uploadMedia({ boardId, file });
+    const mediaRef = push(ref(db, `boards/${boardId}/media`));
+    const historyRef = push(ref(db, `boards/${boardId}/history`));
+    const activityRef = push(ref(db, `boards/${boardId}/activityEvents`));
+    const timestamp = serverTimestamp();
+    const mediaData = {
+      type: result.type,
+      url: result.url,
+      storagePath: result.storagePath,
+      fileName: result.fileName,
+      width: result.type === "image" ? 420 : 500,
+      height: result.type === "image" ? 300 : 320,
+      x: 150,
+      y: 150,
+      owner: currentUserId,
+      ownerName: currentUser.name,
+      isReflectionPoint: false,
+      reflectionReason: "",
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    const payload = { mediaId: mediaRef.key, media: { id: mediaRef.key, ...mediaData } };
+
+    await update(ref(db, `boards/${boardId}`), {
+      [`media/${mediaRef.key}`]: mediaData,
+      [`history/${historyRef.key}`]: {
+        type: "media_created",
+        userId: currentUserId,
+        userName: currentUser.name,
+        payload,
+        timestamp
+      },
+      [`activityEvents/${activityRef.key}`]: {
+        type: "media_created",
+        userId: currentUserId,
+        userName: currentUser.name,
+        payload,
+        timestamp
+      }
+    });
+
+    alert("アップロードしました");
+  } catch (error) {
+    console.error(error);
+    alert(error instanceof Error ? error.message : "アップロードに失敗しました");
+  } finally {
+    event.target.value = "";
+  }
+};
   const updateCard = (id, data) => {
     update(ref(db, `boards/${boardId}/cards/${id}`), {
       ...data,
@@ -714,6 +800,230 @@ export default function App() {
         cardId: move.cardId,
         payload: { x: move.lastX, y: move.lastY }
       });
+    }
+  };
+
+  const updateMediaItem = (mediaId, data) => {
+    update(ref(db, `boards/${boardId}/media/${mediaId}`), {
+      ...data,
+      updatedAt: serverTimestamp()
+    });
+  };
+
+  const handleMediaPointerDown = (e, mediaId, media) => {
+    if (connectMode || movingCard || resizingCard || drawingRef.current.isDrawing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!boardRef.current) return;
+
+    const rect = boardRef.current.getBoundingClientRect();
+    const startX = Number(media.x) || 150;
+    const startY = Number(media.y) || 150;
+
+    setMovingMedia({
+      id: mediaId,
+      offsetX: (e.clientX - rect.left) / zoom - startX,
+      offsetY: (e.clientY - rect.top) / zoom - startY
+    });
+
+    mediaMoveRef.current = {
+      mediaId,
+      startX,
+      startY,
+      lastX: startX,
+      lastY: startY
+    };
+
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  const handleMediaPointerMove = (e) => {
+    if (!movingMedia || !boardRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const media = mediaItems[movingMedia.id];
+    if (!media) return;
+
+    const rect = boardRef.current.getBoundingClientRect();
+    const width = Number(media.width) || 500;
+    const height = Number(media.height) || 300;
+    const canvasWidth = 2200;
+    const canvasHeight = 1400;
+
+    const rawX = (e.clientX - rect.left) / zoom - movingMedia.offsetX;
+    const rawY = (e.clientY - rect.top) / zoom - movingMedia.offsetY;
+    const x = clamp(rawX, 0, Math.max(0, canvasWidth - width));
+    const y = clamp(rawY, 0, Math.max(0, canvasHeight - height));
+
+    if (mediaMoveRef.current?.mediaId === movingMedia.id) {
+      mediaMoveRef.current.lastX = x;
+      mediaMoveRef.current.lastY = y;
+    }
+
+    updateMediaItem(movingMedia.id, { x, y });
+  };
+
+  const handleMediaPointerUp = async (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+
+    const move = mediaMoveRef.current;
+    setMovingMedia(null);
+    mediaMoveRef.current = null;
+
+    if (!move) return;
+
+    const moved =
+      Math.abs(move.startX - move.lastX) > 1 ||
+      Math.abs(move.startY - move.lastY) > 1;
+
+    if (moved) {
+      const media = mediaItems[move.mediaId] || {};
+      await addHistoryEvent({
+        type: "media_moved",
+        includeInActivity: true,
+        payload: {
+          mediaId: move.mediaId,
+          beforeX: move.startX,
+          beforeY: move.startY,
+          afterX: move.lastX,
+          afterY: move.lastY,
+          media: { id: move.mediaId, ...media, x: move.lastX, y: move.lastY }
+        }
+      });
+    }
+  };
+
+
+  const startResizeMedia = (e, mediaId, media) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const width = Number(media.width) || 500;
+    const height = Number(media.height) || 300;
+    setResizingMedia({ id: mediaId, startX: e.clientX, startY: e.clientY, startWidth: width, startHeight: height });
+    mediaResizeRef.current = { mediaId, startWidth: width, startHeight: height, lastWidth: width, lastHeight: height };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  const moveResizeMedia = (e) => {
+    if (!resizingMedia) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const width = Math.max(180, resizingMedia.startWidth + (e.clientX - resizingMedia.startX) / zoom);
+    const height = Math.max(120, resizingMedia.startHeight + (e.clientY - resizingMedia.startY) / zoom);
+    if (mediaResizeRef.current?.mediaId === resizingMedia.id) {
+      mediaResizeRef.current.lastWidth = width;
+      mediaResizeRef.current.lastHeight = height;
+    }
+    updateMediaItem(resizingMedia.id, { width, height });
+  };
+
+  const endResizeMedia = async (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    const resize = mediaResizeRef.current;
+    setResizingMedia(null);
+    mediaResizeRef.current = null;
+    if (!resize) return;
+    const changed = Math.abs(resize.startWidth - resize.lastWidth) > 1 || Math.abs(resize.startHeight - resize.lastHeight) > 1;
+    if (!changed) return;
+    const media = mediaItems[resize.mediaId] || {};
+    await addHistoryEvent({
+      type: "media_resized",
+      includeInActivity: true,
+      payload: {
+        mediaId: resize.mediaId,
+        beforeWidth: resize.startWidth,
+        beforeHeight: resize.startHeight,
+        afterWidth: resize.lastWidth,
+        afterHeight: resize.lastHeight,
+        media: { id: resize.mediaId, ...media, width: resize.lastWidth, height: resize.lastHeight }
+      }
+    });
+  };
+
+  const toggleMediaReflectionPoint = async (e, mediaId, media) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const nextValue = !media.isReflectionPoint;
+    let reason = media.reflectionReason || "";
+    if (nextValue) {
+      const input = window.prompt("この写真・動画を振り返りのポイントにする理由を入力してください。", reason);
+      if (input === null) return;
+      reason = input.trim();
+    }
+
+    await update(ref(db, `boards/${boardId}/media/${mediaId}`), {
+      isReflectionPoint: nextValue,
+      reflectionReason: nextValue ? reason : "",
+      reflectionMarkedAt: nextValue ? serverTimestamp() : null,
+      updatedAt: serverTimestamp()
+    });
+
+    await addHistoryEvent({
+      type: nextValue ? "media_marked_as_reflection_point" : "media_unmarked_as_reflection_point",
+      includeInActivity: true,
+      payload: {
+        mediaId,
+        reason: nextValue ? reason : "",
+        media: { id: mediaId, ...media, isReflectionPoint: nextValue, reflectionReason: reason }
+      }
+    });
+  };
+
+  const handleVideoPlayed = async (mediaId, media) => {
+    if (media.lastPlayedBy === currentUserId && Date.now() - Number(media.lastPlayedAt || 0) < 30000) return;
+    await update(ref(db, `boards/${boardId}/media/${mediaId}`), {
+      lastPlayedBy: currentUserId,
+      lastPlayedAt: serverTimestamp()
+    });
+    await addHistoryEvent({
+      type: "media_played",
+      payload: { mediaId, media: { id: mediaId, ...media } }
+    });
+  };
+
+  const handleDeleteMedia = async (e, mediaId, media) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!mediaId || !media) return;
+
+    const fileLabel = media.fileName || "このメディア";
+    const confirmed = window.confirm(
+      `${fileLabel}を削除しますか？\nこの操作は元に戻せません。`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      // 先にSupabase Storage上の実ファイルを削除する
+      if (media.storagePath) {
+        await deleteMediaFile(media.storagePath);
+      }
+
+      // 次にFirebase上のメディア情報を削除する
+      await remove(ref(db, `boards/${boardId}/media/${mediaId}`));
+
+      await addHistoryEvent({
+        type: "media_deleted",
+        includeInActivity: true,
+        payload: {
+          mediaId,
+          fileName: media.fileName || "",
+          mediaType: media.type || "",
+          storagePath: media.storagePath || "",
+          media: { id: mediaId, ...media }
+        }
+      });
+    } catch (error) {
+      console.error("メディアの削除に失敗しました:", error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "メディアの削除に失敗しました。"
+      );
     }
   };
 
@@ -1590,6 +1900,7 @@ export default function App() {
         reflectionRecord={reflectionRecord}
         historyLoading={historyLoading}
         onAddCard={addCard}
+        onUploadMedia={handleUpload}
         onToggleConnectMode={() => {
           setConnectMode(!connectMode);
           setConnectFrom(null);
@@ -1765,6 +2076,99 @@ export default function App() {
                   </div>
                 );
               })}
+
+              {Object.entries(mediaItems).map(([mediaId, media]) => {
+                const x = Number(media.x) || 150;
+                const y = Number(media.y) || 150;
+                const width = Number(media.width) || 500;
+                const height = Number(media.height) || 300;
+
+                return (
+                  <div
+                    key={mediaId}
+                    className={`board-media-item ${media.isReflectionPoint ? "is-reflection-point" : ""}`}
+                    style={{
+                      left: x,
+                      top: y,
+                      width,
+                      height
+                    }}
+                  >
+                    <div
+                      className="board-media-drag-handle"
+                      title="ドラッグして移動"
+                      onPointerDown={(e) =>
+                        handleMediaPointerDown(e, mediaId, media)
+                      }
+                      onPointerMove={handleMediaPointerMove}
+                      onPointerUp={handleMediaPointerUp}
+                      onPointerCancel={handleMediaPointerUp}
+                    >
+                      <span>移動</span>
+                    </div>
+
+
+                    <button
+                      type="button"
+                      className={`media-reflection-button ${media.isReflectionPoint ? "active" : ""}`}
+                      title={media.isReflectionPoint ? "振り返りポイントを解除" : "振り返りポイントに指定"}
+                      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      onClick={(e) => toggleMediaReflectionPoint(e, mediaId, media)}
+                    >
+                      {media.isReflectionPoint ? "★ 振り返り" : "☆ 振り返り"}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="board-media-delete-button"
+                      title="メディアを削除"
+                      aria-label={`${media.fileName || "メディア"}を削除`}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onClick={(e) =>
+                        handleDeleteMedia(e, mediaId, media)
+                      }
+                    >
+                      ×
+                    </button>
+
+                    {media.type === "image" ? (
+                      <img
+                        src={media.url}
+                        alt={media.fileName || "アップロード画像"}
+                        draggable={false}
+                      />
+                    ) : (
+                      <video
+                        src={media.url}
+                        controls
+                        preload="metadata"
+                        onPlay={() => handleVideoPlayed(mediaId, media)}
+                      >
+                        お使いのブラウザでは動画を再生できません。
+                      </video>
+                    )}
+
+                    <div className="board-media-caption">
+                      {media.fileName || "メディア"}
+                      {media.isReflectionPoint && media.reflectionReason && (
+                        <small>{media.reflectionReason}</small>
+                      )}
+                    </div>
+
+                    <div
+                      className="board-media-resize-handle"
+                      title="ドラッグしてサイズ変更"
+                      onPointerDown={(e) => startResizeMedia(e, mediaId, media)}
+                      onPointerMove={moveResizeMedia}
+                      onPointerUp={endResizeMedia}
+                      onPointerCancel={endResizeMedia}
+                    />
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -1911,7 +2315,10 @@ export default function App() {
                         {reflectionKeypoints.map((event) => {
                           const meta = getKeypointMeta(event);
                           const isActive = displayedReflectionKeypoint?.id === event.id;
-                          const seekPosition = event.type === "card_deleted"
+                          const isDeleteEvent =
+                            event.type === "card_deleted" ||
+                            event.type === "media_deleted";
+                          const seekPosition = isDeleteEvent
                             ? Math.max(0, event.positionMs - 1)
                             : event.positionMs;
 
@@ -2010,17 +2417,19 @@ export default function App() {
                 <div className="activity-history-heading compact-heading">
                   <div>
                     <h3>活動の流れの目印</h3>
-                    <p>付箋の変化を、活動全体を思い出すための時系列の目印として表示します。</p>
+                    <p>付箋・写真・動画の登場や削除を、活動全体を思い出すための時系列の目印として表示します。</p>
                   </div>
                   <span>{reflectionActivityEvents.length}件</span>
                 </div>
 
                 <div className="keypoint-summary">
                   {[
-                    ["card_created", "発生"],
-                    ["card_deleted", "整理"],
+                    ["card_created", "付箋登場"],
+                    ["card_deleted", "付箋削除"],
                     ["card_type_changed", "分類"],
-                    ["card_resized", "注目"]
+                    ["card_resized", "注目"],
+                    ["media_created", "写真・動画登場"],
+                    ["media_deleted", "写真・動画削除"]
                   ].map(([type, label]) => (
                     <div className={`keypoint-summary-item ${getKeypointMeta({ type }).className}`} key={type}>
                       <strong>{reflectionActivityEvents.filter((event) => event.type === type).length}</strong>
