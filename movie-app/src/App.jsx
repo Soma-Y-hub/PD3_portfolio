@@ -19,6 +19,8 @@ import LoginPage from "./components/LoginPage";
 import AdminPage from "./components/AdminPage";
 import BoardSelectionPage from "./components/BoardSelectionPage";
 import BoardHeader from "./components/BoardHeader";
+import AdminFeedbackFeature from "./components/feedback/AdminFeedbackFeature";
+import StudentTeacherFeedbackCard from "./components/feedback/StudentTeacherFeedbackCard";
 import { db } from "./firebase/firebase";
 import {
   DRAWING_COLOR,
@@ -47,6 +49,10 @@ import {
 import { createPlaybackState } from "./utils/playbackUtils";
 import { drawSegmentOnCanvas, resizeCanvasToDisplaySize } from "./utils/drawingUtils";
 import { uploadMedia, deleteMediaFile } from "./services/mediaService";
+import {
+  deleteReflection,
+  markTeacherFeedbackAsRead
+} from "./services/feedbackService";
 
 export default function App() {
   const boardRef = useRef(null);
@@ -440,6 +446,8 @@ export default function App() {
     setReflectionOpen(false);
     setReflectionText("");
     setReflectionRecord(null);
+    setBoardReflections({});
+    setTeacherComment("");
     setReflectionPlaybackPosition(0);
     setReflectionIsPlaying(false);
     reflectionStartedAtRef.current = null;
@@ -1616,6 +1624,20 @@ const handleUpload = async (event) => {
 
     setReflectionOpen(true);
 
+    // 生徒がコメントを開いた時点を既読として記録する。
+    if (
+      currentUser.role !== "admin" &&
+      reflectionRecord?.teacherFeedback?.comment &&
+      !reflectionRecord.teacherFeedback.isRead
+    ) {
+      markTeacherFeedbackAsRead({
+        boardId,
+        userId: currentUserId
+      }).catch((error) => {
+        console.error("コメントを既読にできませんでした", error);
+      });
+    }
+
     const usageRef = ref(
       db,
       `boards/${boardId}/researchUsage/${currentUserId}`
@@ -1670,7 +1692,7 @@ const handleUpload = async (event) => {
         reflectionAccumulatedDurationRef.current + currentSessionDuration;
       const startedAtClient = submittedAtClient - durationMs;
 
-      await set(
+      await update(
         ref(db, `boards/${boardId}/reflections/${currentUserId}`),
         {
           userId: currentUserId,
@@ -1707,6 +1729,28 @@ const handleUpload = async (event) => {
     }
   };
 
+  const handleDeleteOwnReflection = async () => {
+    if (!boardId || !currentUserId || !reflectionRecord) return;
+
+    const confirmed = window.confirm(
+      "保存されている振り返りを削除しますか？\n先生からのコメントも同時に削除されます。"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await deleteReflection({ boardId, userId: currentUserId });
+      setReflectionText("");
+      setReflectionRecord(null);
+      reflectionStartedAtRef.current = Date.now();
+      reflectionAccumulatedDurationRef.current = 0;
+      alert("振り返りを削除しました");
+    } catch (error) {
+      console.error("振り返りを削除できませんでした", error);
+      alert("振り返りを削除できませんでした");
+    }
+  };
+
   const exportReflectionCsv = async () => {
     if (currentUser?.role !== "admin" || !boardId) return;
 
@@ -1722,7 +1766,12 @@ const handleUpload = async (event) => {
         "submittedAt",
         "activityEventCountShown",
         "finalCardCount",
-        "finalConnectionCount"
+        "finalConnectionCount",
+        "teacherComment",
+        "teacherName",
+        "feedbackUpdatedAt",
+        "feedbackIsRead",
+        "feedbackReadAt"
       ]
     ];
 
@@ -1738,7 +1787,12 @@ const handleUpload = async (event) => {
         value.submittedAt || "",
         value.activityEventCountShown || 0,
         value.boardStateAtSubmit?.cardCount || 0,
-        value.boardStateAtSubmit?.connectionCount || 0
+        value.boardStateAtSubmit?.connectionCount || 0,
+        value.teacherFeedback?.comment || "",
+        value.teacherFeedback?.teacherName || "",
+        value.teacherFeedback?.updatedAt || "",
+        value.teacherFeedback?.isRead ? "true" : "false",
+        value.teacherFeedback?.readAt || ""
       ]);
     });
 
@@ -2238,6 +2292,14 @@ const handleUpload = async (event) => {
         )}
       </main>
 
+      <AdminFeedbackFeature
+        boardId={boardId}
+        currentUserId={currentUserId}
+        currentUser={currentUser}
+        users={users}
+        formatTimestamp={formatTimestamp}
+      />
+
       {reflectionOpen && (
         <div className="reflection-overlay">
           <div className="reflection-dialog with-activity-history three-column-reflection">
@@ -2523,13 +2585,25 @@ const handleUpload = async (event) => {
                 <div className="reflection-writing-footer">
                   <span>{reflectionText.length}文字</span>
                   <div>
+                    {reflectionRecord && (
+                      <button
+                        type="button"
+                        className="reflection-delete-button"
+                        onClick={handleDeleteOwnReflection}
+                        disabled={reflectionSubmitting}
+                      >
+                        振り返りを削除
+                      </button>
+                    )}
                     <button
+                      type="button"
                       className="reflection-cancel-button"
                       onClick={closeReflection}
                     >
                       閉じる
                     </button>
                     <button
+                      type="button"
                       className="reflection-submit-button"
                       onClick={submitReflection}
                       disabled={reflectionSubmitting}
@@ -2542,6 +2616,13 @@ const handleUpload = async (event) => {
                     </button>
                   </div>
                 </div>
+
+                {currentUser.role !== "admin" && (
+                  <StudentTeacherFeedbackCard
+                    feedback={reflectionRecord?.teacherFeedback}
+                    formatTimestamp={formatTimestamp}
+                  />
+                )}
               </section>
             </div>
           </div>
