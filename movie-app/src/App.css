@@ -2062,3 +2062,133 @@ button {
     height: 34px;
   }
 }
+
+/* =========================================================
+   Android / iPad 付箋手書きエリア修正
+   CSS統合時に失われた drawing-area / canvas のサイズを復元する
+   ========================================================= */
+
+/* 付箋内部を縦並びにして、手書き欄へ残りの高さを割り当てる */
+.card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.card select {
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+  user-select: auto;
+  -webkit-user-select: auto;
+}
+
+/* 手書き領域 */
+.drawing-area {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.5);
+  overflow: hidden;
+}
+
+.drawing-area-full {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.drawing-toolbar {
+  position: relative;
+  z-index: 8;
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 5px 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.drawing-toolbar span {
+  color: #444;
+  font-size: 12px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.drawing-toolbar button {
+  min-width: 52px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: #555;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  touch-action: manipulation;
+}
+
+.drawing-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* RealtimeDrawingCanvas の canvas */
+.card-drawing-canvas {
+  position: relative;
+  z-index: 7;
+  display: block;
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  cursor: crosshair;
+  pointer-events: auto;
+  touch-action: none;
+  overscroll-behavior: contain;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.card-drawing-canvas.read-only {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* 旧クラス名にも対応 */
+.card-draw-layer {
+  pointer-events: auto;
+  touch-action: none;
+}
+
+/* タッチ端末では十分な描画面積を確保 */
+@media (pointer: coarse) {
+  .drawing-area-full {
+    min-height: 160px;
+  }
+
+  .drawing-toolbar {
+    min-height: 40px;
+    padding: 6px 8px;
+  }
+
+  .drawing-toolbar button {
+    min-width: 60px;
+    min-height: 34px;
+  }
+}
