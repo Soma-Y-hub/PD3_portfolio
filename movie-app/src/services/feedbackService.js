@@ -1,18 +1,16 @@
 import {
+  get,
   ref,
-  update,
   remove,
-  serverTimestamp
+  serverTimestamp,
+  update
 } from "firebase/database";
-
 import { db } from "../firebase/firebase";
 
-function getFeedbackPath(boardId, userId) {
-  if (!boardId || !userId) {
-    throw new Error("ボードIDまたはユーザーIDが不足しています。");
+function requireValue(value, label) {
+  if (!value) {
+    throw new Error(`${label}が指定されていません。`);
   }
-
-  return `boards/${boardId}/reflections/${userId}/teacherFeedback`;
 }
 
 export async function saveTeacherFeedback({
@@ -20,45 +18,66 @@ export async function saveTeacherFeedback({
   userId,
   teacherId,
   teacherName,
-  comment,
-  previousFeedback = {}
+  comment
 }) {
-  const normalizedComment = String(comment ?? "").trim();
+  requireValue(boardId, "ボードID");
+  requireValue(userId, "生徒ID");
+  requireValue(teacherId, "管理者ID");
 
-  if (!teacherId || !teacherName) {
-    throw new Error("管理者情報が不足しています。");
-  }
-
-  if (!normalizedComment) {
+  const trimmedComment = String(comment ?? "").trim();
+  if (!trimmedComment) {
     throw new Error("コメントを入力してください。");
   }
 
-  await update(ref(db, getFeedbackPath(boardId, userId)), {
-    comment: normalizedComment,
+  const feedbackRef = ref(
+    db,
+    `boards/${boardId}/reflections/${userId}/teacherFeedback`
+  );
+  const snapshot = await get(feedbackRef);
+  const existing = snapshot.val() || {};
+
+  const updates = {
+    comment: trimmedComment,
     teacherId,
-    teacherName,
-    createdAt: previousFeedback.createdAt || serverTimestamp(),
+    teacherName: teacherName || "管理者",
     updatedAt: serverTimestamp(),
     isRead: false,
     readAt: null
-  });
+  };
+
+  if (!existing.createdAt) {
+    updates.createdAt = serverTimestamp();
+  }
+
+  await update(feedbackRef, updates);
 }
 
 export async function deleteTeacherFeedback({ boardId, userId }) {
-  await remove(ref(db, getFeedbackPath(boardId, userId)));
+  requireValue(boardId, "ボードID");
+  requireValue(userId, "生徒ID");
+
+  await remove(
+    ref(db, `boards/${boardId}/reflections/${userId}/teacherFeedback`)
+  );
 }
 
 export async function markTeacherFeedbackAsRead({ boardId, userId }) {
-  await update(ref(db, getFeedbackPath(boardId, userId)), {
-    isRead: true,
-    readAt: serverTimestamp()
-  });
+  requireValue(boardId, "ボードID");
+  requireValue(userId, "生徒ID");
+
+  await update(
+    ref(db, `boards/${boardId}/reflections/${userId}/teacherFeedback`),
+    {
+      isRead: true,
+      readAt: serverTimestamp()
+    }
+  );
 }
 
 export async function deleteReflection({ boardId, userId }) {
-  if (!boardId || !userId) {
-    throw new Error("ボードIDまたはユーザーIDが不足しています。");
-  }
+  requireValue(boardId, "ボードID");
+  requireValue(userId, "生徒ID");
 
+  // teacherFeedbackは振り返りの配下にあるため、同時に削除される。
   await remove(ref(db, `boards/${boardId}/reflections/${userId}`));
 }

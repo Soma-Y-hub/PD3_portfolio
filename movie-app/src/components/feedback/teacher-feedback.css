@@ -1,274 +1,420 @@
-/* 管理者コメント機能：App.cssの末尾へ追加 */
-.admin-feedback-floating-button {
+/* =========================================================
+   振り返りコメント管理
+   他画面への影響を防ぐため admin-feedback-* に限定
+   ========================================================= */
+
+.admin-feedback-launcher {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 1200;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
-  border: 0;
-  border-radius: 999px;
-  background: #17324d;
+  z-index: 900;
+  min-height: 48px;
+  padding: 12px 20px;
+  border: 1px solid #1d4ed8;
+  border-radius: 14px;
+  background: #2563eb;
   color: #fff;
-  font-weight: 700;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: 0 10px 28px rgba(37, 99, 235, 0.28);
+  cursor: pointer;
 }
 
-.admin-feedback-floating-button span {
-  min-width: 24px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: #fff;
-  color: #17324d;
-  text-align: center;
+.admin-feedback-launcher:hover {
+  background: #1d4ed8;
 }
 
-.feedback-overlay {
+.admin-feedback-overlay {
   position: fixed;
   inset: 0;
-  z-index: 2000;
+  z-index: 3000;
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(15, 23, 42, 0.64);
+  background: rgba(15, 23, 42, 0.58);
+  backdrop-filter: blur(4px);
 }
 
-.feedback-dialog {
-  width: min(1120px, 96vw);
-  height: min(760px, 92vh);
+.admin-feedback-dialog {
+  width: min(1180px, 96vw);
+  height: min(780px, 92vh);
+  min-height: 560px;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  border-radius: 20px;
+  border: 1px solid #dbe3ee;
+  border-radius: 22px;
   background: #fff;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.3);
 }
 
-.feedback-dialog-header {
+.admin-feedback-header {
+  flex: 0 0 auto;
+  min-height: 92px;
+  padding: 20px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 24px;
-  border-bottom: 1px solid #dbe2ea;
-}
-
-.feedback-dialog-header h2,
-.feedback-dialog-header p {
-  margin: 0;
-}
-
-.feedback-dialog-header p {
-  margin-top: 4px;
-  color: #64748b;
-}
-
-.feedback-dialog-header > button {
-  width: 40px;
-  height: 40px;
-  border: 0;
-  border-radius: 50%;
-  font-size: 26px;
-}
-
-.feedback-dialog-body {
-  display: grid;
-  grid-template-columns: 300px 1fr;
-  height: calc(100% - 82px);
-}
-
-.feedback-student-list {
-  overflow-y: auto;
-  padding: 18px;
-  border-right: 1px solid #dbe2ea;
-  background: #f8fafc;
-}
-
-.feedback-student-list h3 {
-  margin: 0 0 12px;
-}
-
-.feedback-student-item {
-  width: 100%;
-  margin-bottom: 10px;
-  padding: 14px;
-  border: 1px solid #d7dee8;
-  border-radius: 12px;
+  gap: 20px;
+  border-bottom: 1px solid #e2e8f0;
   background: #fff;
-  text-align: left;
 }
 
-.feedback-student-item.active {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+.admin-feedback-header h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1.3;
 }
 
-.feedback-student-item strong,
-.feedback-student-item span,
-.feedback-student-item small {
-  display: block;
-}
-
-.feedback-student-item span {
-  margin-top: 5px;
-  color: #2563eb;
+.admin-feedback-header p {
+  margin: 6px 0 0;
+  color: #64748b;
   font-size: 13px;
 }
 
-.feedback-student-item small {
-  margin-top: 5px;
-  color: #64748b;
+.admin-feedback-header > button {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
 }
 
-.feedback-editor {
+.admin-feedback-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.admin-feedback-list {
+  min-width: 0;
+  min-height: 0;
+  padding: 14px;
   overflow-y: auto;
-  padding: 24px;
-}
-
-.feedback-reflection-card {
-  margin-bottom: 22px;
-  padding: 18px;
-  border: 1px solid #dbe2ea;
-  border-radius: 14px;
+  border-right: 1px solid #e2e8f0;
   background: #f8fafc;
 }
 
-.feedback-reflection-card > div {
+.admin-feedback-list > p {
+  margin: 12px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.admin-feedback-list > button {
+  width: 100%;
+  min-height: 98px;
+  margin: 0 0 10px;
+  padding: 14px 15px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  border: 1px solid #dbe3ee;
+  border-radius: 14px;
+  background: #fff;
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
 }
 
-.feedback-reflection-card h3,
-.feedback-reflection-card p {
-  margin: 0;
+.admin-feedback-list > button:hover {
+  border-color: #93c5fd;
+  background: #f8fbff;
 }
 
-.feedback-reflection-card p {
-  margin-top: 14px;
-  white-space: pre-wrap;
-  line-height: 1.8;
+.admin-feedback-list > button.active {
+  border: 2px solid #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
-.feedback-editor > label {
-  display: block;
-  margin-bottom: 8px;
+.admin-feedback-list > button strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-feedback-list > button span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.admin-feedback-list > button small {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 11px;
   font-weight: 700;
 }
 
-.feedback-editor textarea {
+.admin-feedback-list > button.active small {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.admin-feedback-detail {
+  min-width: 0;
+  min-height: 0;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: #fff;
+}
+
+.admin-feedback-detail > p {
+  margin: auto;
+  color: #64748b;
+}
+
+.admin-reflection-view {
+  flex: 0 0 auto;
+  max-height: 240px;
+  margin-bottom: 20px;
+  padding: 18px;
+  overflow-y: auto;
+  border: 1px solid #dbe3ee;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.admin-reflection-view h3 {
+  margin: 0 0 12px;
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.admin-reflection-view p {
+  margin: 0;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.admin-feedback-detail > label {
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.admin-feedback-detail > textarea {
+  flex: 1 1 auto;
   width: 100%;
-  min-height: 220px;
+  min-height: 190px;
+  padding: 16px;
   resize: vertical;
-  padding: 14px;
   border: 1px solid #cbd5e1;
-  border-radius: 12px;
+  border-radius: 14px;
+  outline: none;
+  background: #fff;
+  color: #0f172a;
   font: inherit;
+  font-size: 14px;
   line-height: 1.7;
 }
 
-.feedback-editor-footer {
+.admin-feedback-detail > textarea:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.13);
+}
+
+.admin-feedback-footer {
+  flex: 0 0 auto;
+  margin-top: 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 12px;
 }
 
-.feedback-editor-footer > div {
+.admin-feedback-footer > span {
+  flex: 0 0 auto;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.admin-feedback-footer > div {
   display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
-.feedback-save-button,
-.feedback-delete-button {
-  padding: 10px 16px;
+.admin-feedback-footer button {
+  min-height: 42px;
+  padding: 10px 15px;
   border-radius: 10px;
-  font-weight: 700;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
-.feedback-save-button {
-  border: 0;
-  background: #2563eb;
-  color: #fff;
+.admin-comment-delete-button {
+  border: 1px solid #f59e0b;
+  background: #fffbeb;
+  color: #b45309;
 }
 
-.feedback-delete-button {
-  border: 1px solid #dc2626;
+.admin-reflection-delete-button {
+  border: 1px solid #ef4444;
   background: #fff;
   color: #dc2626;
 }
 
-.feedback-empty {
-  color: #64748b;
+.admin-feedback-save-button {
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #fff;
 }
 
-.student-teacher-feedback-card {
-  margin-top: 16px;
-  margin-bottom: 0;
+.admin-feedback-save-button:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.admin-feedback-footer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* 生徒側：先生コメント */
+.teacher-feedback-card {
+  flex: 0 0 auto;
+  margin-top: 14px;
   padding: 16px;
   border: 1px solid #93c5fd;
   border-radius: 14px;
   background: #eff6ff;
 }
 
-.student-teacher-feedback-heading {
+.teacher-feedback-card.teacher-feedback-empty {
+  border-color: #dbe3ee;
+  background: #f8fafc;
+}
+
+.teacher-feedback-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.student-teacher-feedback-card p {
-  margin: 12px 0 8px;
+.teacher-feedback-heading h3 {
+  margin: 0;
+  color: #1e3a8a;
+  font-size: 15px;
+}
+
+.teacher-feedback-heading span {
+  color: #475569;
+  font-size: 12px;
+}
+
+.teacher-feedback-comment {
+  margin: 12px 0;
+  color: #1e293b;
+  font-size: 14px;
+  line-height: 1.75;
   white-space: pre-wrap;
-  line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
-.student-teacher-feedback-card small {
+.teacher-feedback-date {
   color: #64748b;
+  font-size: 12px;
 }
 
-@media (max-width: 820px) {
-  .feedback-overlay {
-    padding: 8px;
+/* タブレット縦向き・狭い画面 */
+@media (max-width: 900px) {
+  .admin-feedback-overlay {
+    padding: 10px;
   }
 
-  .feedback-dialog {
+  .admin-feedback-dialog {
     width: 100%;
     height: 96vh;
+    border-radius: 16px;
   }
 
-  .feedback-dialog-body {
+  .admin-feedback-content {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .admin-feedback-header {
+    min-height: 78px;
+    padding: 14px 16px;
+  }
+
+  .admin-feedback-header h2 {
+    font-size: 20px;
+  }
+
+  .admin-feedback-detail {
+    padding: 16px;
+  }
+
+  .admin-feedback-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-feedback-footer > div {
+    width: 100%;
+  }
+
+  .admin-feedback-footer button {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 680px) {
+  .admin-feedback-content {
     grid-template-columns: 1fr;
-    grid-template-rows: 220px 1fr;
+    grid-template-rows: 190px minmax(0, 1fr);
   }
 
-  .feedback-student-list {
+  .admin-feedback-list {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
     border-right: 0;
-    border-bottom: 1px solid #dbe2ea;
+    border-bottom: 1px solid #e2e8f0;
   }
-}
 
-.feedback-delete-reflection-button,
-.reflection-delete-button {
-  border: 1px solid #dc2626;
-  background: #fff;
-  color: #dc2626;
-}
+  .admin-feedback-list > button {
+    flex: 0 0 220px;
+    margin-bottom: 0;
+  }
 
-.reflection-delete-button {
-  padding: 10px 14px;
-  border-radius: 10px;
-  font-weight: 700;
-}
+  .admin-feedback-detail {
+    padding: 14px;
+  }
 
-.reflection-delete-button:hover,
-.feedback-delete-reflection-button:hover {
-  background: #fef2f2;
-}
-
-.reflection-delete-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
+  .admin-reflection-view {
+    max-height: 170px;
+  }
 }

@@ -19,8 +19,6 @@ import LoginPage from "./components/LoginPage";
 import AdminPage from "./components/AdminPage";
 import BoardSelectionPage from "./components/BoardSelectionPage";
 import BoardHeader from "./components/BoardHeader";
-import AdminFeedbackFeature from "./components/feedback/AdminFeedbackFeature";
-import StudentTeacherFeedbackCard from "./components/feedback/StudentTeacherFeedbackCard";
 import { db } from "./firebase/firebase";
 import {
   DRAWING_COLOR,
@@ -49,10 +47,9 @@ import {
 import { createPlaybackState } from "./utils/playbackUtils";
 import { drawSegmentOnCanvas, resizeCanvasToDisplaySize } from "./utils/drawingUtils";
 import { uploadMedia, deleteMediaFile } from "./services/mediaService";
-import {
-  deleteReflection,
-  markTeacherFeedbackAsRead
-} from "./services/feedbackService";
+import AdminFeedbackFeature from "./components/feedback/AdminFeedbackFeature";
+import ReflectionWritingPanel from "./components/reflection/ReflectionWritingPanel";
+import ActivityKeypointList from "./components/reflection/ActivityKeypointList";
 
 export default function App() {
   const boardRef = useRef(null);
@@ -446,8 +443,6 @@ export default function App() {
     setReflectionOpen(false);
     setReflectionText("");
     setReflectionRecord(null);
-    setBoardReflections({});
-    setTeacherComment("");
     setReflectionPlaybackPosition(0);
     setReflectionIsPlaying(false);
     reflectionStartedAtRef.current = null;
@@ -1624,20 +1619,6 @@ const handleUpload = async (event) => {
 
     setReflectionOpen(true);
 
-    // 生徒がコメントを開いた時点を既読として記録する。
-    if (
-      currentUser.role !== "admin" &&
-      reflectionRecord?.teacherFeedback?.comment &&
-      !reflectionRecord.teacherFeedback.isRead
-    ) {
-      markTeacherFeedbackAsRead({
-        boardId,
-        userId: currentUserId
-      }).catch((error) => {
-        console.error("コメントを既読にできませんでした", error);
-      });
-    }
-
     const usageRef = ref(
       db,
       `boards/${boardId}/researchUsage/${currentUserId}`
@@ -1692,6 +1673,8 @@ const handleUpload = async (event) => {
         reflectionAccumulatedDurationRef.current + currentSessionDuration;
       const startedAtClient = submittedAtClient - durationMs;
 
+      // update()を使うことで、既存のteacherFeedbackを消さずに
+      // 生徒の振り返り部分だけを更新する。
       await update(
         ref(db, `boards/${boardId}/reflections/${currentUserId}`),
         {
@@ -1729,25 +1712,38 @@ const handleUpload = async (event) => {
     }
   };
 
-  const handleDeleteOwnReflection = async () => {
+
+  const deleteCurrentReflection = async () => {
     if (!boardId || !currentUserId || !reflectionRecord) return;
 
     const confirmed = window.confirm(
-      "保存されている振り返りを削除しますか？\n先生からのコメントも同時に削除されます。"
+      "保存済みの振り返りを削除しますか？\n先生からのコメントも同時に削除されます。\nこの操作は元に戻せません。"
     );
 
     if (!confirmed) return;
 
+    setReflectionSubmitting(true);
+    setReflectionIsPlaying(false);
+
     try {
-      await deleteReflection({ boardId, userId: currentUserId });
+      await remove(
+        ref(db, `boards/${boardId}/reflections/${currentUserId}`)
+      );
+
       setReflectionText("");
       setReflectionRecord(null);
+      setReflectionActivityEvents([]);
+      setReflectionPlaybackPosition(0);
+      setSelectedReflectionKeypointId(null);
       reflectionStartedAtRef.current = Date.now();
       reflectionAccumulatedDurationRef.current = 0;
+
       alert("振り返りを削除しました");
     } catch (error) {
       console.error("振り返りを削除できませんでした", error);
       alert("振り返りを削除できませんでした");
+    } finally {
+      setReflectionSubmitting(false);
     }
   };
 
@@ -1766,12 +1762,7 @@ const handleUpload = async (event) => {
         "submittedAt",
         "activityEventCountShown",
         "finalCardCount",
-        "finalConnectionCount",
-        "teacherComment",
-        "teacherName",
-        "feedbackUpdatedAt",
-        "feedbackIsRead",
-        "feedbackReadAt"
+        "finalConnectionCount"
       ]
     ];
 
@@ -1787,12 +1778,7 @@ const handleUpload = async (event) => {
         value.submittedAt || "",
         value.activityEventCountShown || 0,
         value.boardStateAtSubmit?.cardCount || 0,
-        value.boardStateAtSubmit?.connectionCount || 0,
-        value.teacherFeedback?.comment || "",
-        value.teacherFeedback?.teacherName || "",
-        value.teacherFeedback?.updatedAt || "",
-        value.teacherFeedback?.isRead ? "true" : "false",
-        value.teacherFeedback?.readAt || ""
+        value.boardStateAtSubmit?.connectionCount || 0
       ]);
     });
 
@@ -2292,13 +2278,13 @@ const handleUpload = async (event) => {
         )}
       </main>
 
-      <AdminFeedbackFeature
-        boardId={boardId}
-        currentUserId={currentUserId}
-        currentUser={currentUser}
-        users={users}
-        formatTimestamp={formatTimestamp}
-      />
+      {currentUser?.role === "admin" && (
+        <AdminFeedbackFeature
+          boardId={boardId}
+          currentUserId={currentUserId}
+          currentUser={currentUser}
+        />
+      )}
 
       {reflectionOpen && (
         <div className="reflection-overlay">
@@ -2500,130 +2486,48 @@ const handleUpload = async (event) => {
                   ))}
                 </div>
 
-                {reflectionActivityEvents.length === 0 ? (
-                  <p className="activity-history-empty">
-                    活動の流れを示す目印はまだ記録されていません。
+                <div className="activity-keypoint-help">
+                  <span aria-hidden="true">☝</span>
+                  <p>
+                    目印をタップすると、左のタイムラプスがその時刻へ移動し、
+                    対象の付箋を枠で強調します。
                   </p>
-                ) : (
-                  <div className="activity-history-list">
-                    {reflectionActivityEvents.map((event) => {
-                      const payload = event.payload || {};
-                      const isResize = event.type === "card_resized";
-                      const startTime =
-                        isResize && typeof event.timestamp === "number"
-                          ? event.timestamp - (Number(payload.durationMs) || 0)
-                          : null;
-                      const keypoint = getKeypointMeta(event);
-                      const seekPosition = event.type === "card_deleted"
+                </div>
+
+                <ActivityKeypointList
+                  events={reflectionKeypoints}
+                  selectedEventId={selectedReflectionKeypointId}
+                  currentPlaybackTimestamp={reflectionPlaybackTimestamp}
+                  cardLabelMap={reflectionCardLabelMap}
+                  getKeypointMeta={getKeypointMeta}
+                  getDescription={getActivityDescription}
+                  getChangeDetail={getActivityChangeDetail}
+                  formatTime={formatTimeOnly}
+                  onSelect={(event) => {
+                    const seekPosition =
+                      event.type === "card_deleted" || event.type === "media_deleted"
                         ? Math.max(0, event.positionMs - 1)
                         : event.positionMs;
 
-                      return (
-                        <article
-                          className={`activity-history-item keypoint-${keypoint.className} ${displayedReflectionKeypoint?.id === event.id ? "selected" : ""}`}
-                          key={event.id}
-                          onClick={() => {
-                            setReflectionIsPlaying(false);
-                            setSelectedReflectionKeypointId(event.id);
-                            setReflectionPlaybackPosition(seekPosition);
-                          }}
-                        >
-                          <div className={`keypoint-marker ${keypoint.className}`}>
-                            <span className="keypoint-icon">{keypoint.icon}</span>
-                            <span className="keypoint-label">{keypoint.label}</span>
-                          </div>
-                          <div className="activity-history-time">
-                            {isResize && typeof startTime === "number" ? (
-                              <>
-                                <span>{formatTimeOnly(startTime)}</span>
-                                <span>～</span>
-                                <span>{formatTimeOnly(event.timestamp)}</span>
-                              </>
-                            ) : (
-                              <span>{formatTimeOnly(event.timestamp)}</span>
-                            )}
-                          </div>
-                          <div className="activity-history-description">
-                            {getActivityDescription(event, reflectionCardLabelMap)}
-                          </div>
-                          <div className="activity-history-change-detail friendly-detail">
-                            {getActivityChangeDetail(event)}
-                          </div>
-                          {isResize && (
-                            <div className="activity-history-duration">
-                              操作時間：{formatDuration(payload.durationMs)}
-                            </div>
-                          )}
-                          <details className="activity-history-technical-detail">
-                            <summary>詳しい記録</summary>
-                            <span>{getActivityTechnicalDetail(event)}</span>
-                          </details>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-
-              <section className="reflection-writing-panel writing-only-panel">
-                <div className="reflection-goal-card reflection-goal-card-wide">
-                  <h3>目標</h3>
-                  <p>{REFLECTION_PROMPT}</p>
-                  <small>左のタイムラプスと活動の目印を使って、活動全体の流れを思い出せます。</small>
-                </div>
-
-                <label htmlFor="reflection-textarea">
-                  振り返り
-                </label>
-                <textarea
-                  id="reflection-textarea"
-                  value={reflectionText}
-                  onChange={(e) => setReflectionText(e.target.value)}
-                  placeholder="ここに自由に記述してください"
-                  autoFocus
+                    setReflectionIsPlaying(false);
+                    setSelectedReflectionKeypointId(event.id);
+                    setReflectionPlaybackPosition(seekPosition);
+                  }}
                 />
-                <div className="reflection-writing-footer">
-                  <span>{reflectionText.length}文字</span>
-                  <div>
-                    {reflectionRecord && (
-                      <button
-                        type="button"
-                        className="reflection-delete-button"
-                        onClick={handleDeleteOwnReflection}
-                        disabled={reflectionSubmitting}
-                      >
-                        振り返りを削除
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="reflection-cancel-button"
-                      onClick={closeReflection}
-                    >
-                      閉じる
-                    </button>
-                    <button
-                      type="button"
-                      className="reflection-submit-button"
-                      onClick={submitReflection}
-                      disabled={reflectionSubmitting}
-                    >
-                      {reflectionSubmitting
-                        ? "保存中…"
-                        : reflectionRecord
-                          ? "更新して保存"
-                          : "保存"}
-                    </button>
-                  </div>
-                </div>
-
-                {currentUser.role !== "admin" && (
-                  <StudentTeacherFeedbackCard
-                    feedback={reflectionRecord?.teacherFeedback}
-                    formatTimestamp={formatTimestamp}
-                  />
-                )}
               </section>
+
+              <ReflectionWritingPanel
+                prompt={REFLECTION_PROMPT}
+                reflectionText={reflectionText}
+                onReflectionTextChange={setReflectionText}
+                reflectionRecord={reflectionRecord}
+                reflectionSubmitting={reflectionSubmitting}
+                boardId={boardId}
+                currentUserId={currentUserId}
+                onClose={closeReflection}
+                onSubmit={submitReflection}
+                onDelete={deleteCurrentReflection}
+              />
             </div>
           </div>
         </div>
