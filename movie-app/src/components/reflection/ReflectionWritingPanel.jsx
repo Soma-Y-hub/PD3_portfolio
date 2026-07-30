@@ -1,44 +1,32 @@
-import StudentTeacherFeedbackCard from "../feedback/StudentTeacherFeedbackCard";
-
 export default function ReflectionWritingPanel({
-  prompt,
   reflectionText,
   onReflectionTextChange,
   reflectionRecord,
   reflectionSubmitting,
-  boardId,
-  currentUserId,
-  onClose,
   onSubmit,
   onDelete
 }) {
   const hasSavedReflection = Boolean(reflectionRecord?.responseText);
 
   return (
-    <section className="reflection-writing-panel writing-only-panel">
-      <div className="reflection-goal-card reflection-goal-card-wide">
-        <h3>目標</h3>
-        <p>{prompt}</p>
-        <small>
-          左のタイムラプスと活動の目印を使って、活動全体の流れを思い出せます。
-        </small>
+    <section className="reflection-simple-write-panel">
+      <div className="reflection-simple-prompt">
+        <h3>今回の活動を振り返る</h3>
+        <p>活動を思い出しながら、気付いたことや次に改善したいことを書きましょう。</p>
       </div>
 
-      <div className="reflection-textarea-field">
-        <label htmlFor="reflection-textarea">振り返り</label>
-        <textarea
-          id="reflection-textarea"
-          value={reflectionText}
-          onChange={(event) => onReflectionTextChange(event.target.value)}
-          placeholder="ここに自由に記述してください"
-          autoFocus
-        />
-      </div>
+      <label htmlFor="reflection-textarea">振り返り</label>
+      <textarea
+        id="reflection-textarea"
+        value={reflectionText}
+        onChange={(event) => onReflectionTextChange(event.target.value)}
+        placeholder="活動で気付いたこと、考えが変わった場面、次に改善したいこと"
+        autoFocus
+      />
 
-      <div className="reflection-writing-footer">
+      <div className="reflection-simple-footer">
         <span>{reflectionText.length}文字</span>
-
-        <div className="reflection-writing-actions">
+        <div>
           {hasSavedReflection && (
             <button
               type="button"
@@ -46,39 +34,23 @@ export default function ReflectionWritingPanel({
               onClick={onDelete}
               disabled={reflectionSubmitting}
             >
-              振り返りを削除
+              削除
             </button>
           )}
-
-          <button
-            type="button"
-            className="reflection-cancel-button"
-            onClick={onClose}
-            disabled={reflectionSubmitting}
-          >
-            閉じる
-          </button>
-
           <button
             type="button"
             className="reflection-submit-button"
             onClick={onSubmit}
-            disabled={reflectionSubmitting}
+            disabled={reflectionSubmitting || !reflectionText.trim()}
           >
             {reflectionSubmitting
-              ? "処理中…"
+              ? "保存中…"
               : hasSavedReflection
                 ? "更新して保存"
                 : "保存"}
           </button>
         </div>
       </div>
-
-      <StudentTeacherFeedbackCard
-        boardId={boardId}
-        userId={currentUserId}
-        feedback={reflectionRecord?.teacherFeedback}
-      />
     </section>
   );
 }

@@ -1,46 +1,36 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { onValue, ref } from "firebase/database";
 import { db } from "../../firebase/firebase";
 
 export default function useBoardReflections(boardId) {
-  const [reflectionMap, setReflectionMap] = useState({});
-  const [loading, setLoading] = useState(false);
+  const [reflections, setReflections] = useState([]);
+  const [loading, setLoading] = useState(Boolean(boardId));
 
   useEffect(() => {
     if (!boardId) {
-      setReflectionMap({});
+      setReflections([]);
       setLoading(false);
       return undefined;
     }
 
     setLoading(true);
-
     return onValue(
       ref(db, `boards/${boardId}/reflections`),
       (snapshot) => {
-        setReflectionMap(snapshot.val() || {});
+        const value = snapshot.val() || {};
+        const items = Object.entries(value)
+          .map(([userId, reflection]) => ({ userId, ...(reflection || {}) }))
+          .sort((a, b) => Number(b.submittedAtClient || b.submittedAt || 0) - Number(a.submittedAtClient || a.submittedAt || 0));
+        setReflections(items);
         setLoading(false);
       },
       (error) => {
-        console.error("振り返り一覧を取得できませんでした", error);
-        setReflectionMap({});
+        console.error("振り返り一覧を読み込めませんでした", error);
+        setReflections([]);
         setLoading(false);
       }
     );
   }, [boardId]);
-
-  const reflections = useMemo(() => {
-    return Object.entries(reflectionMap)
-      .map(([userId, value]) => ({
-        userId,
-        ...(value || {})
-      }))
-      .sort((a, b) => {
-        const aTime = Number(a.submittedAtClient || a.submittedAt || 0);
-        const bTime = Number(b.submittedAtClient || b.submittedAt || 0);
-        return bTime - aTime;
-      });
-  }, [reflectionMap]);
 
   return { reflections, loading };
 }

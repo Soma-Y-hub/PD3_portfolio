@@ -48,11 +48,15 @@ import { createPlaybackState } from "./utils/playbackUtils";
 import { drawSegmentOnCanvas, resizeCanvasToDisplaySize } from "./utils/drawingUtils";
 import { uploadMedia, deleteMediaFile } from "./services/mediaService";
 import AdminFeedbackFeature from "./components/feedback/AdminFeedbackFeature";
-import ReflectionWritingPanel from "./components/reflection/ReflectionWritingPanel";
-import ActivityKeypointList from "./components/reflection/ActivityKeypointList";
+import ReflectionDialog from "./components/reflection/ReflectionDialog";
+import BoardDrawingCanvas from "./components/board/BoardDrawingCanvas";
+import CardMenu from "./components/board/CardMenu";
+import MemberPanel from "./components/board/MemberPanel";
+import StickyNoteList from "./components/board/StickyNoteList";
 
 export default function App() {
   const boardRef = useRef(null);
+  const boardCanvasRef = useRef(null);
   const drawingRef = useRef({ isDrawing: false });
   const moveHistoryRef = useRef(null);
   const mediaMoveRef = useRef(null);
@@ -64,6 +68,7 @@ export default function App() {
   const reflectionPreviousFrameTimeRef = useRef(null);
   const reflectionStartedAtRef = useRef(null);
   const reflectionAccumulatedDurationRef = useRef(0);
+  const focusedCardTimerRef = useRef(null);
 
   const [zoom, setZoom] = useState(1);
   const [loginName, setLoginName] = useState("");
@@ -112,6 +117,10 @@ export default function App() {
   const [reflectionPlaybackSpeed, setReflectionPlaybackSpeed] = useState(300);
   const [reflectionIsPlaying, setReflectionIsPlaying] = useState(false);
   const [selectedReflectionKeypointId, setSelectedReflectionKeypointId] = useState(null);
+  const [boardTool, setBoardTool] = useState("move");
+  const [cardDrawingTool, setCardDrawingTool] = useState("pen");
+  const [cardMenuId, setCardMenuId] = useState(null);
+  const [focusedCardId, setFocusedCardId] = useState(null);
 
   useEffect(() => {
     return onValue(ref(db, "users"), (snapshot) => {
@@ -184,6 +193,39 @@ export default function App() {
       unsubReflection();
     };
   }, [boardId, currentUserId, reflectionOpen]);
+
+  useEffect(() => {
+    if (!boardId || !currentUserId || !currentUser) return undefined;
+
+    const memberRef = ref(db, `boards/${boardId}/members/${currentUserId}`);
+
+    const heartbeat = () => {
+      update(memberRef, {
+        name: currentUser.name,
+        role: currentUser.role,
+        color: currentUser.color || "#fff176",
+        status: document.hidden ? "away" : "online",
+        lastActive: serverTimestamp()
+      }).catch((error) => {
+        console.error("参加状態を更新できませんでした", error);
+      });
+    };
+
+    onDisconnect(memberRef).update({
+      status: "offline",
+      lastActive: serverTimestamp()
+    });
+
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 15_000);
+    const handleVisibilityChange = () => heartbeat();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [boardId, currentUserId, currentUser]);
 
   const playbackDuration = useMemo(() => {
     if (historyEvents.length < 2) return 0;
@@ -456,12 +498,47 @@ export default function App() {
     setSidePanelOpen(false);
     setSidePanelMode("members");
     setZoom(1);
+    setBoardTool("move");
+    setCardDrawingTool("pen");
+    setCardMenuId(null);
+    setFocusedCardId(null);
+    if (focusedCardTimerRef.current) {
+      window.clearTimeout(focusedCardTimerRef.current);
+      focusedCardTimerRef.current = null;
+    }
     drawingRef.current = { isDrawing: false };
   };
 
   const zoomIn = () => setZoom((z) => Math.min(2, Number((z + 0.1).toFixed(1))));
   const zoomOut = () => setZoom((z) => Math.max(0.5, Number((z - 0.1).toFixed(1))));
   const resetZoom = () => setZoom(1);
+
+  /**
+   * 画面上のポインター座標を、拡大前のボード座標へ変換する。
+   * スクロール量・ヘッダー位置・zoomの影響をまとめて補正する。
+   */
+  const getBoardPoint = (event) => {
+    const canvas = boardCanvasRef.current;
+    if (!canvas) return null;
+
+    const rect = canvas.getBoundingClientRect();
+    const layoutWidth = canvas.clientWidth;
+    const layoutHeight = canvas.clientHeight;
+
+    if (
+      rect.width === 0 ||
+      rect.height === 0 ||
+      layoutWidth === 0 ||
+      layoutHeight === 0
+    ) {
+      return null;
+    }
+
+    return {
+      x: (event.clientX - rect.left) * (layoutWidth / rect.width),
+      y: (event.clientY - rect.top) * (layoutHeight / rect.height)
+    };
+  };
 
   const login = () => {
     const name = loginName.trim();
@@ -534,6 +611,10 @@ export default function App() {
     const historyRef = push(ref(db, `boards/${boardId}/history`));
     const activityRef = push(ref(db, `boards/${boardId}/activityEvents`));
     const timestamp = serverTimestamp();
+    const nextZIndex = Math.max(
+      0,
+      ...Object.values(cards).map((card) => Number(card?.zIndex) || 0)
+    ) + 1;
     const cardData = {
       text: "新しい考え",
       x: 120,
@@ -543,7 +624,8 @@ export default function App() {
       owner: currentUserId,
       ownerName: currentUser.name,
       color: currentUser.color || "#fff176",
-      type: "idea"
+      type: "idea",
+      zIndex: nextZIndex
     };
 
     
@@ -751,15 +833,16 @@ const handleUpload = async (event) => {
   };
 
   const handlePointerDown = (e, id, card) => {
-    if (connectMode || resizingCard || drawingRef.current.isDrawing) return;
+    if (boardTool !== "move" || connectMode || resizingCard || drawingRef.current.isDrawing) return;
     e.preventDefault();
-    if (!boardRef.current) return;
 
-    const rect = boardRef.current.getBoundingClientRect();
+    const point = getBoardPoint(e);
+    if (!point) return;
+
     setMovingCard({
       id,
-      offsetX: (e.clientX - rect.left) / zoom - card.x,
-      offsetY: (e.clientY - rect.top) / zoom - card.y
+      offsetX: point.x - Number(card.x || 0),
+      offsetY: point.y - Number(card.y || 0)
     });
     moveHistoryRef.current = {
       cardId: id,
@@ -774,13 +857,18 @@ const handleUpload = async (event) => {
 
   const handlePointerMove = (e) => {
     if (connectMode || resizingCard || drawingRef.current.isDrawing) return;
-    if (!movingCard || !boardRef.current) return;
+    if (!movingCard) return;
 
     const card = cards[movingCard.id];
-    if (!card) return;
-    const rect = boardRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / zoom - movingCard.offsetX;
-    const y = (e.clientY - rect.top) / zoom - movingCard.offsetY;
+    const point = getBoardPoint(e);
+    if (!card || !point) return;
+
+    const width = Number(card.width) || 260;
+    const height = Number(card.height) || 360;
+    const canvasWidth = boardCanvasRef.current?.clientWidth || 2200;
+    const canvasHeight = boardCanvasRef.current?.clientHeight || 1400;
+    const x = clamp(point.x - movingCard.offsetX, 0, Math.max(0, canvasWidth - width));
+    const y = clamp(point.y - movingCard.offsetY, 0, Math.max(0, canvasHeight - height));
 
     if (moveHistoryRef.current?.cardId === movingCard.id) {
       moveHistoryRef.current.lastX = x;
@@ -814,19 +902,22 @@ const handleUpload = async (event) => {
   };
 
   const handleMediaPointerDown = (e, mediaId, media) => {
-    if (connectMode || movingCard || resizingCard || drawingRef.current.isDrawing) return;
+    if (boardTool !== "move" || connectMode || movingCard || resizingCard || drawingRef.current.isDrawing) return;
     e.preventDefault();
     e.stopPropagation();
-    if (!boardRef.current) return;
 
-    const rect = boardRef.current.getBoundingClientRect();
-    const startX = Number(media.x) || 150;
-    const startY = Number(media.y) || 150;
+    const point = getBoardPoint(e);
+    if (!point) return;
+
+    const parsedStartX = Number(media.x);
+    const parsedStartY = Number(media.y);
+    const startX = Number.isFinite(parsedStartX) ? parsedStartX : 150;
+    const startY = Number.isFinite(parsedStartY) ? parsedStartY : 150;
 
     setMovingMedia({
       id: mediaId,
-      offsetX: (e.clientX - rect.left) / zoom - startX,
-      offsetY: (e.clientY - rect.top) / zoom - startY
+      offsetX: point.x - startX,
+      offsetY: point.y - startY
     });
 
     mediaMoveRef.current = {
@@ -841,21 +932,21 @@ const handleUpload = async (event) => {
   };
 
   const handleMediaPointerMove = (e) => {
-    if (!movingMedia || !boardRef.current) return;
+    if (!movingMedia) return;
     e.preventDefault();
     e.stopPropagation();
 
     const media = mediaItems[movingMedia.id];
-    if (!media) return;
+    const point = getBoardPoint(e);
+    if (!media || !point) return;
 
-    const rect = boardRef.current.getBoundingClientRect();
     const width = Number(media.width) || 500;
     const height = Number(media.height) || 300;
-    const canvasWidth = 2200;
-    const canvasHeight = 1400;
+    const canvasWidth = boardCanvasRef.current?.clientWidth || 2200;
+    const canvasHeight = boardCanvasRef.current?.clientHeight || 1400;
 
-    const rawX = (e.clientX - rect.left) / zoom - movingMedia.offsetX;
-    const rawY = (e.clientY - rect.top) / zoom - movingMedia.offsetY;
+    const rawX = point.x - movingMedia.offsetX;
+    const rawY = point.y - movingMedia.offsetY;
     const x = clamp(rawX, 0, Math.max(0, canvasWidth - width));
     const y = clamp(rawY, 0, Math.max(0, canvasHeight - height));
 
@@ -900,6 +991,7 @@ const handleUpload = async (event) => {
 
 
   const startResizeMedia = (e, mediaId, media) => {
+    if (boardTool !== "move") return;
     e.preventDefault();
     e.stopPropagation();
     const width = Number(media.width) || 500;
@@ -1031,7 +1123,7 @@ const handleUpload = async (event) => {
   };
 
   const startResizeCard = (e, id, card) => {
-    if (connectMode || drawingRef.current.isDrawing) return;
+    if (boardTool !== "move" || connectMode || drawingRef.current.isDrawing) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -1329,6 +1421,7 @@ const handleUpload = async (event) => {
         userId: currentUserId,
         userName: currentUser?.name || "",
         payload: {
+          segmentId: segmentRef.key,
           segment: segmentData
         },
         timestamp
@@ -1530,6 +1623,101 @@ const handleUpload = async (event) => {
         timestamp
       }
     });
+  };
+
+  const eraseCardStroke = async ({ cardId, strokeId, segmentIds }) => {
+    if (!boardId || !cardId || !strokeId || segmentIds.length === 0) return;
+
+    const updates = {};
+    segmentIds.forEach((segmentId) => {
+      updates[`drawings/${cardId}/segments/${segmentId}`] = null;
+    });
+
+    const historyRef = push(ref(db, `boards/${boardId}/history`));
+    const timestamp = serverTimestamp();
+    updates[`cards/${cardId}/updatedAt`] = timestamp;
+    updates[`history/${historyRef.key}`] = {
+      type: "drawing_stroke_erased",
+      cardId,
+      userId: currentUserId,
+      userName: currentUser?.name || "",
+      payload: { strokeId, segmentIds },
+      timestamp
+    };
+
+    await update(ref(db, `boards/${boardId}`), updates);
+  };
+
+  const changeCardLayer = async (cardId, direction) => {
+    const card = cards[cardId];
+    if (!card) return;
+
+    const orderedIds = Object.entries(cards)
+      .sort(([, a], [, b]) => (Number(a?.zIndex) || 0) - (Number(b?.zIndex) || 0))
+      .map(([id]) => id)
+      .filter((id) => id !== cardId);
+
+    const reorderedIds = direction === "front"
+      ? [...orderedIds, cardId]
+      : [cardId, ...orderedIds];
+
+    const historyRef = push(ref(db, `boards/${boardId}/history`));
+    const timestamp = serverTimestamp();
+    const updates = {};
+    reorderedIds.forEach((id, index) => {
+      updates[`cards/${id}/zIndex`] = index + 1;
+    });
+    const zIndex = direction === "front" ? reorderedIds.length : 1;
+    updates[`cards/${cardId}/updatedAt`] = timestamp;
+    updates[`history/${historyRef.key}`] = {
+      type: "card_layer_changed",
+      cardId,
+      userId: currentUserId,
+      userName: currentUser?.name || "",
+      payload: { zIndex, direction },
+      timestamp
+    };
+
+    await update(ref(db, `boards/${boardId}`), updates);
+    setCardMenuId(null);
+  };
+
+  const clearBoardDrawing = async () => {
+    if (!boardId) return;
+    if (!window.confirm("ボード全体の書き込みを消去しますか？")) return;
+
+    const historyRef = push(ref(db, `boards/${boardId}/history`));
+    const timestamp = serverTimestamp();
+    await update(ref(db, `boards/${boardId}`), {
+      boardDrawing: null,
+      [`history/${historyRef.key}`]: {
+        type: "board_drawing_cleared",
+        userId: currentUserId,
+        userName: currentUser?.name || "",
+        payload: {},
+        timestamp
+      }
+    });
+  };
+
+  const focusCardFromList = (cardId, card) => {
+    if (!boardRef.current || !card) return;
+
+    const targetLeft = Math.max(
+      0,
+      (Number(card.x) || 0) * zoom - boardRef.current.clientWidth / 2 + ((Number(card.width) || 260) * zoom) / 2
+    );
+    const targetTop = Math.max(
+      0,
+      (Number(card.y) || 0) * zoom - boardRef.current.clientHeight / 2 + ((Number(card.height) || 360) * zoom) / 2
+    );
+
+    boardRef.current.scrollTo({ left: targetLeft, top: targetTop, behavior: "smooth" });
+    setFocusedCardId(cardId);
+    setSidePanelOpen(false);
+
+    if (focusedCardTimerRef.current) window.clearTimeout(focusedCardTimerRef.current);
+    focusedCardTimerRef.current = window.setTimeout(() => setFocusedCardId(null), 2200);
   };
 
   const connectCards = async (fromId, toId) => {
@@ -1838,7 +2026,7 @@ const handleUpload = async (event) => {
     const reader = new FileReader();
 
     reader.onload = async (event) => {
-      const text = event.target.result;
+      const text = String(event.target.result || "");
 
       const lines = text
         .split(/\r?\n/)
@@ -1936,25 +2124,25 @@ const handleUpload = async (event) => {
       <BoardHeader
         boardId={boardId}
         currentUser={currentUser}
-        connectMode={connectMode}
         reflectionRecord={reflectionRecord}
         historyLoading={historyLoading}
+        boardTool={boardTool}
+        onBoardToolChange={(nextTool) => {
+          setBoardTool(nextTool);
+          setCardMenuId(null);
+          if (nextTool !== "move") {
+            setCardDrawingTool("pen");
+          }
+        }}
+        onClearBoardDrawing={clearBoardDrawing}
         onAddCard={addCard}
         onUploadMedia={handleUpload}
-        onToggleConnectMode={() => {
-          setConnectMode(!connectMode);
-          setConnectFrom(null);
-        }}
         onOpenMembers={() => {
           setSidePanelMode("members");
           setSidePanelOpen(true);
         }}
         onOpenCards={() => {
           setSidePanelMode("cards");
-          setSidePanelOpen(true);
-        }}
-        onOpenConnections={() => {
-          setSidePanelMode("connections");
           setSidePanelOpen(true);
         }}
         onOpenReflection={openReflection}
@@ -1976,86 +2164,46 @@ const handleUpload = async (event) => {
             </div>
 
             <div
+              ref={boardCanvasRef}
               className="board-canvas"
               style={{
                 transform: `scale(${zoom})`,
                 transformOrigin: "top left"
               }}
             >
-              <svg className="connection-layer">
-                <defs>
-                  <marker
-                    id="arrowhead"
-                    markerWidth="10"
-                    markerHeight="7"
-                    refX="9"
-                    refY="3.5"
-                    orient="auto"
-                  >
-                    <polygon points="0 0, 10 3.5, 0 7" fill="#333" />
-                  </marker>
-                </defs>
-
-                {Object.entries(connections).map(([id, connection]) => {
-                  const fromCard = cards[connection.from];
-                  const toCard = cards[connection.to];
-
-                  if (!fromCard || !toCard) return null;
-
-                  const x1 = fromCard.x + (fromCard.width || 260) / 2;
-                  const y1 = fromCard.y + (fromCard.height || 360) / 2;
-                  const x2 = toCard.x + (toCard.width || 260) / 2;
-                  const y2 = toCard.y + (toCard.height || 360) / 2;
-
-                  return (
-                    <line
-                      key={id}
-                      x1={x1}
-                      y1={y1}
-                      x2={x2}
-                      y2={y2}
-                      stroke={connection.color || "#333"}
-                      strokeWidth="4"
-                      markerEnd="url(#arrowhead)"
-                    />
-                  );
-                })}
-              </svg>
-
               {Object.entries(cards).map(([id, card]) => {
                 const isOwner = card.owner === currentUserId;
                 const isAdmin = currentUser.role === "admin";
-                const selectedConnect = connectFrom === id;
 
                 return (
                   <div
                     key={id}
-                    className={`card ${isOwner ? "my-card" : "other-card"} ${selectedConnect ? "connect-selected" : ""
-                      }`}
+                    className={`card ${isOwner ? "my-card" : "other-card"} ${focusedCardId === id ? "card-focus-highlight" : ""}`}
                     style={{
                       left: card.x,
                       top: card.y,
                       width: card.width || 260,
                       height: card.height || 360,
-                      background: card.color || "#fff176"
+                      background: card.color || "#fff176",
+                      zIndex: Number(card.zIndex) || 1
                     }}
-                    onClick={() => handleConnectCard(id)}
+                    onClick={() => {
+                      setFocusedCardId(id);
+                      setCardMenuId(null);
+                    }}
                     onPointerDown={(e) => handlePointerDown(e, id, card)}
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
                     onPointerCancel={handlePointerUp}
                   >
                     {(isOwner || isAdmin) && (
-                      <button
-                        className="delete-button"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteCard(id, card);
-                        }}
-                      >
-                        ×
-                      </button>
+                      <CardMenu
+                        open={cardMenuId === id}
+                        onToggle={() => setCardMenuId((current) => current === id ? null : id)}
+                        onBringToFront={() => changeCardLayer(id, "front")}
+                        onSendToBack={() => changeCardLayer(id, "back")}
+                        onDelete={() => deleteCard(id, card)}
+                      />
                     )}
 
                     {!isOwner && <div className="lock-label">他の人</div>}
@@ -2078,48 +2226,73 @@ const handleUpload = async (event) => {
 
 
                     <div
-                      className="drawing-area drawing-area-full"
+                      className={`drawing-area drawing-area-full ${boardTool !== "move" ? "drawing-area-disabled" : ""}`}
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="drawing-toolbar">
-                        <span>手書き</span>
-                        <button
-                          disabled={!isOwner && !isAdmin}
-                          onClick={(e) =>
-                            clearCardDrawing(e, id, isOwner || isAdmin)
-                          }
-                        >
-                          消去
-                        </button>
+                        <span>{boardTool === "move" ? "付箋に手書き" : "ボード描画中"}</span>
+                        <div className="card-drawing-tools">
+                          <button
+                            type="button"
+                            className={cardDrawingTool === "pen" ? "active" : ""}
+                            disabled={(!isOwner && !isAdmin) || boardTool !== "move"}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setCardDrawingTool("pen");
+                            }}
+                          >
+                            ペン
+                          </button>
+                          <button
+                            type="button"
+                            className={cardDrawingTool === "eraser" ? "active" : ""}
+                            disabled={(!isOwner && !isAdmin) || boardTool !== "move"}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setCardDrawingTool("eraser");
+                            }}
+                          >
+                            消しゴム
+                          </button>
+                          <button
+                            type="button"
+                            disabled={(!isOwner && !isAdmin) || boardTool !== "move"}
+                            onClick={(event) => clearCardDrawing(event, id, (isOwner || isAdmin) && boardTool === "move")}
+                          >
+                            全消去
+                          </button>
+                        </div>
                       </div>
 
                       <RealtimeDrawingCanvas
                         boardId={boardId}
                         cardId={id}
-                        canEdit={isOwner || isAdmin}
+                        canEdit={(isOwner || isAdmin) && boardTool === "move"}
+                        tool={cardDrawingTool}
                         startDrawOnCard={startDrawOnCard}
                         drawOnCard={drawOnCard}
                         stopDrawOnCard={stopDrawOnCard}
+                        onEraseStroke={eraseCardStroke}
                       />
                     </div>
 
-                    {!connectMode && (
-                      <div
-                        className="resize-handle"
-                        onPointerDown={(e) => startResizeCard(e, id, card)}
-                        onPointerMove={moveResizeCard}
-                        onPointerUp={endResizeCard}
-                        onPointerCancel={endResizeCard}
-                      />
-                    )}
+                    <div
+                      className="resize-handle"
+                      onPointerDown={(e) => startResizeCard(e, id, card)}
+                      onPointerMove={moveResizeCard}
+                      onPointerUp={endResizeCard}
+                      onPointerCancel={endResizeCard}
+                    />
                   </div>
                 );
               })}
 
               {Object.entries(mediaItems).map(([mediaId, media]) => {
-                const x = Number(media.x) || 150;
-                const y = Number(media.y) || 150;
+                const parsedX = Number(media.x);
+                const parsedY = Number(media.y);
+                const x = Number.isFinite(parsedX) ? parsedX : 150;
+                const y = Number.isFinite(parsedY) ? parsedY : 150;
                 const width = Number(media.width) || 500;
                 const height = Number(media.height) || 300;
 
@@ -2131,7 +2304,8 @@ const handleUpload = async (event) => {
                       left: x,
                       top: y,
                       width,
-                      height
+                      height,
+                      zIndex: Number(media.zIndex) || 5
                     }}
                   >
                     <div
@@ -2209,71 +2383,32 @@ const handleUpload = async (event) => {
                   </div>
                 );
               })}
+
+              <BoardDrawingCanvas
+                boardId={boardId}
+                currentUserId={currentUserId}
+                currentUser={currentUser}
+                tool={boardTool}
+              />
             </div>
           </div>
         </section>
 
         {sidePanelOpen && (
-          <aside className="side-panel">
+          <aside className="side-panel tablet-side-panel">
             <div className="side-panel-header">
-              <h2>
-                {sidePanelMode === "members" && "参加中ユーザー"}
-                {sidePanelMode === "cards" && "付箋一覧"}
-                {sidePanelMode === "connections" && "矢印一覧"}
-              </h2>
-
+              <h2>{sidePanelMode === "members" ? "参加中のユーザー" : "付箋一覧"}</h2>
               <button onClick={() => setSidePanelOpen(false)}>×</button>
             </div>
 
-            {sidePanelMode === "members" &&
-              Object.entries(members).map(([uid, member]) => (
-                <div className="member-item" key={uid}>
-                  <span
-                    className="member-color"
-                    style={{ background: member.color || "#fff176" }}
-                  />
-                  <div>
-                    <div className="member-name">{member.name}</div>
-                    <div className="member-role">
-                      {member.role === "admin" ? "管理者" : "学生"}
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-            {sidePanelMode === "cards" &&
-              Object.entries(cards)
-                .sort(([, cardA], [, cardB]) => {
-                  return getTimestampValue(cardB.updatedAt) - getTimestampValue(cardA.updatedAt);
-                })
-                .map(([id, card]) => (
-                  <div className="timeline-item" key={id}>
-                    <div className="timeline-type">{card.type}</div>
-                    <div className="timeline-text">
-                      {card.ownerName}の手書き付箋
-                    </div>
-                  </div>
-                ))}
-
-            {sidePanelMode === "connections" &&
-              Object.entries(connections)
-                .sort(([, connectionA], [, connectionB]) => {
-                  return getTimestampValue(connectionB.createdAt) - getTimestampValue(connectionA.createdAt);
-                })
-                .map(([id, connection]) => (
-                  <div className="timeline-item" key={id}>
-                    <div className="timeline-text">
-                      {cards[connection.from]?.text || "削除済み"} →{" "}
-                      {cards[connection.to]?.text || "削除済み"}
-                    </div>
-                    <button
-                      className="small-delete-button"
-                      onClick={() => deleteConnection(id)}
-                    >
-                      矢印削除
-                    </button>
-                  </div>
-                ))}
+            {sidePanelMode === "members" && <MemberPanel members={members} />}
+            {sidePanelMode === "cards" && (
+              <StickyNoteList
+                cards={cards}
+                selectedCardId={focusedCardId}
+                onSelect={focusCardFromList}
+              />
+            )}
           </aside>
         )}
       </main>
@@ -2286,252 +2421,44 @@ const handleUpload = async (event) => {
         />
       )}
 
-      {reflectionOpen && (
-        <div className="reflection-overlay">
-          <div className="reflection-dialog with-activity-history three-column-reflection">
-            <div className="reflection-header">
-              <div>
-                <h2>活動の振り返り</h2>
-                <p>{REFLECTION_PROMPT}</p>
-              </div>
-              <button
-                aria-label="振り返り画面を閉じる"
-                onClick={closeReflection}
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="reflection-content">
-              <section className="reflection-timelapse-column">
-                <div className="reflection-mini-timelapse-panel left-side-timelapse">
-                  <div className="reflection-mini-timelapse-header">
-                    <div>
-                      <strong>ボード全体のタイムラプス</strong>
-                      <span>{reflectionPlaybackTimestamp ? formatTimestamp(reflectionPlaybackTimestamp) : "履歴がありません"}</span>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={historyEvents.length === 0}
-                      onClick={() => {
-                        setSelectedReflectionKeypointId(null);
-                        if (reflectionPlaybackPosition >= reflectionPlaybackDuration) {
-                          setReflectionPlaybackPosition(0);
-                        }
-                        setReflectionIsPlaying((value) => !value);
-                      }}
-                    >
-                      {reflectionIsPlaying ? "停止" : "再生"}
-                    </button>
-                  </div>
-
-                  <div className="reflection-mini-timelapse-controls">
-                    <button
-                      type="button"
-                      disabled={historyEvents.length === 0}
-                      onClick={() => {
-                        setReflectionIsPlaying(false);
-                        setSelectedReflectionKeypointId(null);
-                        setReflectionPlaybackPosition(0);
-                      }}
-                    >
-                      最初
-                    </button>
-                    <select
-                      value={reflectionPlaybackSpeed}
-                      onChange={(e) => setReflectionPlaybackSpeed(Number(e.target.value))}
-                    >
-                      <option value={60}>1秒＝1分</option>
-                      <option value={300}>1秒＝5分</option>
-                      <option value={600}>1秒＝10分</option>
-                      <option value={1800}>1秒＝30分</option>
-                    </select>
-                    <div className="reflection-mini-range-wrap">
-                      <input
-                        type="range"
-                        min="0"
-                        max={Math.max(reflectionPlaybackDuration, 0)}
-                        value={Math.min(reflectionPlaybackPosition, reflectionPlaybackDuration)}
-                        onChange={(e) => {
-                          setReflectionIsPlaying(false);
-                          setSelectedReflectionKeypointId(null);
-                          setReflectionPlaybackPosition(Number(e.target.value));
-                        }}
-                        aria-label="振り返り用タイムラプス再生位置"
-                      />
-                      <div className="reflection-mini-keypoint-track">
-                        {reflectionKeypoints.map((event) => {
-                          const meta = getKeypointMeta(event);
-                          const isActive = displayedReflectionKeypoint?.id === event.id;
-                          const isDeleteEvent =
-                            event.type === "card_deleted" ||
-                            event.type === "media_deleted";
-                          const seekPosition = isDeleteEvent
-                            ? Math.max(0, event.positionMs - 1)
-                            : event.positionMs;
-
-                          return (
-                            <button
-                              key={event.id}
-                              type="button"
-                              className={`timelapse-keypoint-dot ${meta.className} ${isActive ? "active" : ""}`}
-                              style={{ left: `${event.percentage}%` }}
-                              title={`${formatTimeOnly(event.timestamp)} ${meta.label}：${getActivityDescription(event, reflectionCardLabelMap)}`}
-                              aria-label={`${formatTimeOnly(event.timestamp)} ${meta.label}`}
-                              onClick={() => {
-                                setReflectionIsPlaying(false);
-                                setSelectedReflectionKeypointId(event.id);
-                                setReflectionPlaybackPosition(seekPosition);
-                              }}
-                            >
-                              <span>{meta.icon}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  {displayedReflectionKeypoint && (() => {
-                    const meta = getKeypointMeta(displayedReflectionKeypoint);
-                    return (
-                      <div className={`reflection-mini-keypoint-banner ${meta.className}`}>
-                        <strong>{meta.label}</strong>
-                        <span>{formatTimeOnly(displayedReflectionKeypoint.timestamp)}</span>
-                        <p>{getActivityDescription(displayedReflectionKeypoint, reflectionCardLabelMap)}</p>
-                      </div>
-                    );
-                  })()}
-
-                  <div className="reflection-mini-timelapse-board">
-                    <div className="reflection-mini-timelapse-canvas">
-                      <svg className="connection-layer">
-                        <defs>
-                          <marker id="reflection-mini-arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                            <polygon points="0 0, 10 3.5, 0 7" fill="#333" />
-                          </marker>
-                        </defs>
-                        {Object.entries(reflectionPlaybackState.connections).map(([id, connection]) => {
-                          const fromCard = reflectionPlaybackState.cards[connection.from];
-                          const toCard = reflectionPlaybackState.cards[connection.to];
-                          if (!fromCard || !toCard) return null;
-                          return (
-                            <line
-                              key={id}
-                              x1={fromCard.x + (fromCard.width || 260) / 2}
-                              y1={fromCard.y + (fromCard.height || 360) / 2}
-                              x2={toCard.x + (toCard.width || 260) / 2}
-                              y2={toCard.y + (toCard.height || 360) / 2}
-                              stroke={connection.color || "#333"}
-                              strokeWidth="4"
-                              markerEnd="url(#reflection-mini-arrowhead)"
-                            />
-                          );
-                        })}
-                      </svg>
-
-                      {Object.entries(reflectionPlaybackState.cards).map(([id, card]) => (
-                        <div
-                          key={id}
-                          className={`card timelapse-card reflection-mini-card ${displayedReflectionKeypoint?.cardId === id
-                            ? `timelapse-keypoint-card-active ${getKeypointMeta(displayedReflectionKeypoint).className}`
-                            : ""
-                            }`}
-                          style={{
-                            left: card.x,
-                            top: card.y,
-                            width: card.width || 260,
-                            height: card.height || 360,
-                            background: card.color || "#fff176"
-                          }}
-                        >
-                          <div className="owner-name">{card.ownerName}</div>
-                          <div className="timelapse-card-type">{getCardTypeLabel(card.type || "idea")}</div>
-                          <div className="drawing-area drawing-area-full">
-                            <PlaybackDrawingCanvas segments={reflectionPlaybackState.drawings[id] || []} />
-                          </div>
-                        </div>
-                      ))}
-
-                      {historyEvents.length === 0 && (
-                        <div className="reflection-mini-empty">履歴がありません</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section className="activity-history-panel activity-flow-column">
-                <div className="activity-history-heading compact-heading">
-                  <div>
-                    <h3>活動の流れの目印</h3>
-                    <p>付箋・写真・動画の登場や削除を、活動全体を思い出すための時系列の目印として表示します。</p>
-                  </div>
-                  <span>{reflectionActivityEvents.length}件</span>
-                </div>
-
-                <div className="keypoint-summary">
-                  {[
-                    ["card_created", "付箋登場"],
-                    ["card_deleted", "付箋削除"],
-                    ["card_type_changed", "分類"],
-                    ["card_resized", "注目"],
-                    ["media_created", "写真・動画登場"],
-                    ["media_deleted", "写真・動画削除"]
-                  ].map(([type, label]) => (
-                    <div className={`keypoint-summary-item ${getKeypointMeta({ type }).className}`} key={type}>
-                      <strong>{reflectionActivityEvents.filter((event) => event.type === type).length}</strong>
-                      <span>{label}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="activity-keypoint-help">
-                  <span aria-hidden="true">☝</span>
-                  <p>
-                    目印をタップすると、左のタイムラプスがその時刻へ移動し、
-                    対象の付箋を枠で強調します。
-                  </p>
-                </div>
-
-                <ActivityKeypointList
-                  events={reflectionKeypoints}
-                  selectedEventId={selectedReflectionKeypointId}
-                  currentPlaybackTimestamp={reflectionPlaybackTimestamp}
-                  cardLabelMap={reflectionCardLabelMap}
-                  getKeypointMeta={getKeypointMeta}
-                  getDescription={getActivityDescription}
-                  getChangeDetail={getActivityChangeDetail}
-                  formatTime={formatTimeOnly}
-                  onSelect={(event) => {
-                    const seekPosition =
-                      event.type === "card_deleted" || event.type === "media_deleted"
-                        ? Math.max(0, event.positionMs - 1)
-                        : event.positionMs;
-
-                    setReflectionIsPlaying(false);
-                    setSelectedReflectionKeypointId(event.id);
-                    setReflectionPlaybackPosition(seekPosition);
-                  }}
-                />
-              </section>
-
-              <ReflectionWritingPanel
-                prompt={REFLECTION_PROMPT}
-                reflectionText={reflectionText}
-                onReflectionTextChange={setReflectionText}
-                reflectionRecord={reflectionRecord}
-                reflectionSubmitting={reflectionSubmitting}
-                boardId={boardId}
-                currentUserId={currentUserId}
-                onClose={closeReflection}
-                onSubmit={submitReflection}
-                onDelete={deleteCurrentReflection}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      <ReflectionDialog
+        open={reflectionOpen}
+        onClose={closeReflection}
+        historyEvents={historyEvents}
+        playbackDuration={reflectionPlaybackDuration}
+        playbackPosition={reflectionPlaybackPosition}
+        onPlaybackPositionChange={setReflectionPlaybackPosition}
+        playbackSpeed={reflectionPlaybackSpeed}
+        onPlaybackSpeedChange={setReflectionPlaybackSpeed}
+        isPlaying={reflectionIsPlaying}
+        onPlayingChange={setReflectionIsPlaying}
+        playbackTimestamp={reflectionPlaybackTimestamp}
+        playbackState={reflectionPlaybackState}
+        keypoints={reflectionKeypoints}
+        selectedKeypointId={selectedReflectionKeypointId}
+        onSelectKeypoint={(event) => {
+          const seekPosition =
+            event.type === "card_deleted" || event.type === "media_deleted"
+              ? Math.max(0, event.positionMs - 1)
+              : event.positionMs;
+          setReflectionIsPlaying(false);
+          setSelectedReflectionKeypointId(event.id);
+          setReflectionPlaybackPosition(seekPosition);
+        }}
+        cardLabelMap={reflectionCardLabelMap}
+        getKeypointMeta={getKeypointMeta}
+        getDescription={getActivityDescription}
+        getCardTypeLabel={getCardTypeLabel}
+        formatTime={formatTimeOnly}
+        reflectionText={reflectionText}
+        onReflectionTextChange={setReflectionText}
+        reflectionRecord={reflectionRecord}
+        reflectionSubmitting={reflectionSubmitting}
+        onSubmitReflection={submitReflection}
+        onDeleteReflection={deleteCurrentReflection}
+        boardId={boardId}
+        currentUserId={currentUserId}
+      />
 
       {timelapseOpen && (
         <div className="timelapse-overlay">
@@ -2645,31 +2572,6 @@ const handleUpload = async (event) => {
             </div>
 
             <div className="timelapse-board">
-              <svg className="connection-layer">
-                <defs>
-                  <marker id="timelapse-arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                    <polygon points="0 0, 10 3.5, 0 7" fill="#333" />
-                  </marker>
-                </defs>
-                {Object.entries(playbackState.connections).map(([id, connection]) => {
-                  const fromCard = playbackState.cards[connection.from];
-                  const toCard = playbackState.cards[connection.to];
-                  if (!fromCard || !toCard) return null;
-                  return (
-                    <line
-                      key={id}
-                      x1={fromCard.x + (fromCard.width || 260) / 2}
-                      y1={fromCard.y + (fromCard.height || 360) / 2}
-                      x2={toCard.x + (toCard.width || 260) / 2}
-                      y2={toCard.y + (toCard.height || 360) / 2}
-                      stroke={connection.color || "#333"}
-                      strokeWidth="4"
-                      markerEnd="url(#timelapse-arrowhead)"
-                    />
-                  );
-                })}
-              </svg>
-
               {Object.entries(playbackState.cards).map(([id, card]) => (
                 <div
                   key={id}
@@ -2682,7 +2584,8 @@ const handleUpload = async (event) => {
                     top: card.y,
                     width: card.width || 260,
                     height: card.height || 360,
-                    background: card.color || "#fff176"
+                    background: card.color || "#fff176",
+                    zIndex: Number(card.zIndex) || 1
                   }}
                 >
                   <div className="owner-name">{card.ownerName}</div>
@@ -2692,6 +2595,12 @@ const handleUpload = async (event) => {
                   </div>
                 </div>
               ))}
+
+              {(playbackState.boardDrawings || []).length > 0 && (
+                <div className="timelapse-board-drawing-layer" aria-hidden="true">
+                  <PlaybackDrawingCanvas segments={playbackState.boardDrawings} />
+                </div>
+              )}
 
               {historyEvents.length === 0 && (
                 <div className="timelapse-empty">履歴がありません。統合版導入後の操作から記録されます。</div>

@@ -3,15 +3,15 @@ import { useRef } from "react";
 export default function BoardHeader({
   boardId,
   currentUser,
-  connectMode,
   reflectionRecord,
   historyLoading,
+  boardTool,
+  onBoardToolChange,
+  onClearBoardDrawing,
   onAddCard,
   onUploadMedia,
-  onToggleConnectMode,
   onOpenMembers,
   onOpenCards,
-  onOpenConnections,
   onOpenReflection,
   onExportReflectionCsv,
   onOpenTimelapse,
@@ -19,25 +19,34 @@ export default function BoardHeader({
   onLeaveBoard,
   onLogout
 }) {
+  const cameraInputRef = useRef(null);
   const mediaInputRef = useRef(null);
 
-  const openMediaPicker = () => {
-    mediaInputRef.current?.click();
-  };
-
   return (
-    <header className="header">
-      <div>
+    <header className="header tablet-header">
+      <div className="header-title-area">
         <h1>PBL思考ボード</h1>
         <p>
-          グループ：{boardId} ／ ユーザー：{currentUser.name} ／ 権限：
+          グループ：{boardId} ／ {currentUser.name} ／
           {currentUser.role === "admin" ? "管理者" : "学生"}
         </p>
       </div>
 
-      <div className="header-buttons">
+      <div className="header-buttons tablet-toolbar">
         <button className="add-button" onClick={onAddCard}>
-          ＋ 付箋追加
+          ＋付箋
+        </button>
+
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={onUploadMedia}
+          hidden
+        />
+        <button className="add-button" onClick={() => cameraInputRef.current?.click()}>
+          📷撮影
         </button>
 
         <input
@@ -47,34 +56,47 @@ export default function BoardHeader({
           onChange={onUploadMedia}
           hidden
         />
-
-        <button className="add-button" onClick={openMediaPicker}>
-          ＋ 画像・動画
+        <button className="add-button" onClick={() => mediaInputRef.current?.click()}>
+          ＋画像・動画
         </button>
 
-        <button
-          className={connectMode ? "active-button" : ""}
-          onClick={onToggleConnectMode}
-        >
-          {connectMode ? "矢印ON" : "矢印OFF"}
-        </button>
+        <div className="board-tool-group" aria-label="ボード描画ツール">
+          <button
+            className={boardTool === "move" ? "active-button" : ""}
+            onClick={() => onBoardToolChange("move")}
+          >
+            移動
+          </button>
+          <button
+            className={boardTool === "pen" ? "active-button" : ""}
+            onClick={() => onBoardToolChange("pen")}
+          >
+            ✏ペン
+          </button>
+          <button
+            className={boardTool === "eraser" ? "active-button" : ""}
+            onClick={() => onBoardToolChange("eraser")}
+          >
+            消しゴム
+          </button>
+          <button onClick={onClearBoardDrawing}>全消去</button>
+        </div>
 
         <button onClick={onOpenMembers}>参加者</button>
         <button onClick={onOpenCards}>付箋一覧</button>
-        <button onClick={onOpenConnections}>矢印一覧</button>
 
         <button className="reflection-button" onClick={onOpenReflection}>
-          {reflectionRecord ? "振り返りを編集" : "振り返り"}
+          {reflectionRecord ? "振り返りを開く" : "振り返り"}
         </button>
 
         {currentUser.role === "admin" && (
           <>
-            <button onClick={onExportReflectionCsv}>振り返りCSV</button>
+            <button onClick={onExportReflectionCsv}>CSV</button>
             <button onClick={onOpenTimelapse} disabled={historyLoading}>
-              {historyLoading ? "読み込み中…" : "詳細履歴"}
+              {historyLoading ? "読込中…" : "履歴"}
             </button>
             <button className="admin-button" onClick={onOpenAdmin}>
-              管理画面
+              管理
             </button>
           </>
         )}
