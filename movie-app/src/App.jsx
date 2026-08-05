@@ -10,15 +10,18 @@ import {
   set,
   remove,
   onDisconnect,
-  serverTimestamp
+  serverTimestamp,
+  runTransaction
 } from "firebase/database";
 
 import RealtimeDrawingCanvas from "./components/RealtimeDrawingCanvas";
 import PlaybackDrawingCanvas from "./components/PlaybackDrawingCanvas";
 import LoginPage from "./components/LoginPage";
 import AdminPage from "./components/AdminPage";
-import BoardSelectionPage from "./components/BoardSelectionPage";
 import BoardHeader from "./components/BoardHeader";
+import GroupSelectionPage from "./components/GroupSelectionPage";
+import ActivityStatusBar from "./components/ActivityStatusBar";
+import NextActionDialog from "./components/NextActionDialog";
 import { db } from "./firebase/firebase";
 import {
   DRAWING_COLOR,
@@ -78,6 +81,12 @@ export default function App() {
   const [users, setUsers] = useState({});
   const [boardInput, setBoardInput] = useState("");
   const [boardId, setBoardId] = useState("");
+  const [groups, setGroups] = useState({});
+  const [groupId, setGroupId] = useState("");
+  const [groupName, setGroupName] = useState("");
+  const [boardMeta, setBoardMeta] = useState(null);
+  const [groupOpening, setGroupOpening] = useState(false);
+  const [endingActivity, setEndingActivity] = useState(false);
 
   const [cards, setCards] = useState({});
   const [mediaItems, setMediaItems] = useState({});
@@ -113,6 +122,9 @@ export default function App() {
   const [reflectionText, setReflectionText] = useState("");
   const [reflectionRecord, setReflectionRecord] = useState(null);
   const [reflectionSubmitting, setReflectionSubmitting] = useState(false);
+  const [nextActionOpen, setNextActionOpen] = useState(false);
+  const [nextActionText, setNextActionText] = useState("");
+  const [nextActionSaving, setNextActionSaving] = useState(false);
   const [reflectionPlaybackPosition, setReflectionPlaybackPosition] = useState(0);
   const [reflectionPlaybackSpeed, setReflectionPlaybackSpeed] = useState(300);
   const [reflectionIsPlaying, setReflectionIsPlaying] = useState(false);
@@ -135,6 +147,23 @@ export default function App() {
       setAllBoards(snapshot.val() || {});
     });
   }, [currentUser]);
+
+  useEffect(() => {
+    return onValue(ref(db, "groups"), (snapshot) => {
+      setGroups(snapshot.val() || {});
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!boardId) {
+      setBoardMeta(null);
+      return undefined;
+    }
+
+    return onValue(ref(db, `boards/${boardId}/meta`), (snapshot) => {
+      setBoardMeta(snapshot.val() || null);
+    });
+  }, [boardId]);
 
   useEffect(() => {
     if (!boardId) return;
@@ -181,6 +210,9 @@ export default function App() {
         if (value?.responseText && !reflectionOpen) {
           setReflectionText(value.responseText);
         }
+        if (!nextActionOpen) {
+          setNextActionText(value?.nextAction || "");
+        }
       })
       : () => { };
 
@@ -192,7 +224,7 @@ export default function App() {
       unsubActivities();
       unsubReflection();
     };
-  }, [boardId, currentUserId, reflectionOpen]);
+  }, [boardId, currentUserId, reflectionOpen, nextActionOpen]);
 
   useEffect(() => {
     if (!boardId || !currentUserId || !currentUser) return undefined;
@@ -226,6 +258,51 @@ export default function App() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [boardId, currentUserId, currentUser]);
+
+  const selectableGroups = useMemo(() => {
+    const nextGroups = { ...groups };
+
+    if (currentUser?.role === "admin") {
+      Object.entries(allBoards).forEach(([legacyBoardId, legacyBoard]) => {
+        if (legacyBoard?.meta?.groupId) return;
+        if (nextGroups[legacyBoardId]) return;
+
+        nextGroups[legacyBoardId] = {
+          name: legacyBoardId,
+          legacyBoardId,
+          isLegacy: true,
+          boardControl: {
+            currentBoardId: legacyBoardId,
+            currentBoardNumber: 1,
+            boardCount: 1
+          }
+        };
+      });
+    }
+
+    return nextGroups;
+  }, [groups, allBoards, currentUser]);
+
+  const boardIsCompleted = boardMeta?.status === "completed";
+  const currentBoardNumber = Number(boardMeta?.number) || 1;
+  const previousNextAction =
+    boardMeta?.previousNextActions?.[currentUserId] ||
+    boardMeta?.previousNextAction ||
+    "";
+  const currentNextAction = reflectionRecord?.nextAction || "";
+
+  const runIfBoardEditable = (callback) => (...args) => {
+    if (boardIsCompleted) {
+      const firstArg = args[0];
+      if (firstArg?.target?.type === "file") {
+        firstArg.target.value = "";
+      }
+      alert("この活動は終了しているため、ボードは閲覧専用です");
+      return;
+    }
+
+    return callback(...args);
+  };
 
   const playbackDuration = useMemo(() => {
     if (historyEvents.length < 2) return 0;
@@ -476,6 +553,9 @@ export default function App() {
   const resetBoardStates = () => {
     setBoardId("");
     setBoardInput("");
+    setGroupId("");
+    setGroupName("");
+    setBoardMeta(null);
     setCards({});
     setMediaItems({});
     setMembers({});
@@ -485,6 +565,8 @@ export default function App() {
     setReflectionOpen(false);
     setReflectionText("");
     setReflectionRecord(null);
+    setNextActionOpen(false);
+    setNextActionText("");
     setReflectionPlaybackPosition(0);
     setReflectionIsPlaying(false);
     reflectionStartedAtRef.current = null;
@@ -567,17 +649,54 @@ export default function App() {
     setScreen("board");
   };
 
-  const enterBoard = async (value) => {
-    if (!value || !currentUserId || !currentUser) return;
+  const createGroup = async (name) => {
+    if (currentUser?.role !== "admin" || !currentUserId) return;
 
-    const memberRef = ref(db, `boards/${value}/members/${currentUserId}`);
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      alert("グループ名を入力してください");
+      return;
+    }
+
+    const duplicate = Object.values(groups).some(
+      (group) => group?.name?.trim() === normalizedName
+    );
+    if (duplicate) {
+      alert("同じ名前のグループがすでにあります");
+      return;
+    }
+
+    const groupRef = push(ref(db, "groups"));
+    await set(groupRef, {
+      name: normalizedName,
+      createdBy: currentUserId,
+      createdByName: currentUser.name,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      boardControl: {
+        boardCount: 0
+      }
+    });
+  };
+
+  const enterSelectedBoard = async ({
+    selectedBoardId,
+    selectedGroupId,
+    selectedGroupName
+  }) => {
+    if (!selectedBoardId || !currentUserId || !currentUser) return;
+
+    const memberRef = ref(
+      db,
+      `boards/${selectedBoardId}/members/${currentUserId}`
+    );
 
     onDisconnect(memberRef).update({
       status: "offline",
       lastActive: serverTimestamp()
     });
 
-    await update(ref(db, `boards/${value}`), {
+    await update(ref(db, `boards/${selectedBoardId}`), {
       [`members/${currentUserId}`]: {
         name: currentUser.name,
         role: currentUser.role,
@@ -588,13 +707,134 @@ export default function App() {
       }
     });
 
-    setBoardId(value);
+    setGroupId(selectedGroupId);
+    setGroupName(selectedGroupName);
+    setBoardId(selectedBoardId);
   };
 
-  const joinBoard = async () => {
-    const value = boardInput.trim();
-    if (!value) return;
-    await enterBoard(value);
+  const selectGroup = async (selectedGroupId, selectedGroup) => {
+    if (!selectedGroupId || !currentUserId || !currentUser) return;
+
+    setGroupOpening(true);
+
+    try {
+      const selectedGroupName =
+        selectedGroup?.name || selectedGroupId;
+      const candidateBoardId =
+        selectedGroup?.legacyBoardId || push(ref(db, "boards")).key;
+
+      if (!candidateBoardId) {
+        throw new Error("新しいボードIDを作成できませんでした");
+      }
+
+      const controlRef = ref(
+        db,
+        `groups/${selectedGroupId}/boardControl`
+      );
+
+      const transactionResult = await runTransaction(
+        controlRef,
+        (currentValue) => {
+          const control = currentValue || {};
+
+          if (control.currentBoardId) {
+            return control;
+          }
+
+          if (control.nextBoardId) {
+            return {
+              ...control,
+              currentBoardId: control.nextBoardId,
+              currentBoardNumber:
+                Number(control.nextBoardNumber) ||
+                Number(control.boardCount) ||
+                1,
+              nextBoardId: null,
+              nextBoardNumber: null,
+              lastActivatedAtClient: Date.now()
+            };
+          }
+
+          const nextNumber = Math.max(
+            1,
+            (Number(control.boardCount) || 0) + 1
+          );
+
+          return {
+            ...control,
+            currentBoardId: candidateBoardId,
+            currentBoardNumber: nextNumber,
+            boardCount: nextNumber,
+            lastActivatedAtClient: Date.now()
+          };
+        }
+      );
+
+      if (!transactionResult.committed) {
+        throw new Error("活動ボードを確定できませんでした");
+      }
+
+      const control = transactionResult.snapshot.val() || {};
+      const activeBoardId = control.currentBoardId;
+      const activeBoardNumber =
+        Number(control.currentBoardNumber) ||
+        Number(control.boardCount) ||
+        1;
+
+      if (!activeBoardId) {
+        throw new Error("開く活動ボードが見つかりませんでした");
+      }
+
+      const metaRef = ref(db, `boards/${activeBoardId}/meta`);
+      const metaSnapshot = await get(metaRef);
+
+      if (!metaSnapshot.exists()) {
+        await update(ref(db), {
+          [`groups/${selectedGroupId}/name`]: selectedGroupName,
+          [`groups/${selectedGroupId}/updatedAt`]: serverTimestamp(),
+          [`boards/${activeBoardId}/meta`]: {
+            groupId: selectedGroupId,
+            groupName: selectedGroupName,
+            number: activeBoardNumber,
+            title: `第${activeBoardNumber}回の活動`,
+            status: "active",
+            previousBoardId: control.lastCompletedBoardId || null,
+            createdAt: serverTimestamp(),
+            startedAt: serverTimestamp()
+          }
+        });
+      } else {
+        const meta = metaSnapshot.val() || {};
+        if (meta.status === "completed") {
+          throw new Error(
+            "終了済みボードが活動中として設定されています。管理者に確認してください"
+          );
+        }
+
+        await update(metaRef, {
+          groupId: selectedGroupId,
+          groupName: selectedGroupName,
+          number: Number(meta.number) || activeBoardNumber,
+          status: "active",
+          startedAt: meta.startedAt || serverTimestamp()
+        });
+      }
+
+      await enterSelectedBoard({
+        selectedBoardId: activeBoardId,
+        selectedGroupId,
+        selectedGroupName
+      });
+    } catch (error) {
+      console.error("グループを開けませんでした", error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "グループを開けませんでした"
+      );
+    } finally {
+      setGroupOpening(false);
+    }
   };
 
   const leaveBoard = () => {
@@ -602,6 +842,172 @@ export default function App() {
       remove(ref(db, `boards/${boardId}/members/${currentUserId}`));
     }
     resetBoardStates();
+  };
+
+  const saveNextAction = async () => {
+    const nextAction = nextActionText.trim();
+    if (!nextAction) {
+      alert("次回することを入力してください");
+      return;
+    }
+    if (!boardId || !currentUserId || !currentUser) return;
+
+    setNextActionSaving(true);
+    try {
+      await update(
+        ref(db, `boards/${boardId}/reflections/${currentUserId}`),
+        {
+          userId: currentUserId,
+          userName: currentUser.name,
+          nextAction,
+          nextActionUpdatedAt: serverTimestamp()
+        }
+      );
+      setNextActionOpen(false);
+      alert("次回することを保存しました");
+    } catch (error) {
+      console.error("次回することを保存できませんでした", error);
+      alert("次回することを保存できませんでした");
+    } finally {
+      setNextActionSaving(false);
+    }
+  };
+
+  const endCurrentActivity = async () => {
+    if (
+      currentUser?.role !== "admin" ||
+      !groupId ||
+      !boardId ||
+      boardIsCompleted
+    ) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "この活動を終了しますか？\n現在のボードは閲覧専用になり、次回用の空のボードが自動生成されます。"
+    );
+    if (!confirmed) return;
+
+    setEndingActivity(true);
+
+    try {
+      const reflectionSnapshot = await get(
+        ref(db, `boards/${boardId}/reflections`)
+      );
+      const previousNextActions = {};
+      reflectionSnapshot.forEach((child) => {
+        const value = child.val() || {};
+        const nextAction = String(value.nextAction || "").trim();
+        if (nextAction) {
+          previousNextActions[child.key] = nextAction;
+        }
+      });
+
+      const candidateNextBoardId = push(ref(db, "boards")).key;
+      if (!candidateNextBoardId) {
+        throw new Error("次回用ボードを生成できませんでした");
+      }
+
+      const controlRef = ref(db, `groups/${groupId}/boardControl`);
+      const transactionResult = await runTransaction(
+        controlRef,
+        (currentValue) => {
+          const control = currentValue || {};
+
+          if (
+            control.currentBoardId !== boardId &&
+            control.lastCompletedBoardId !== boardId
+          ) {
+            return;
+          }
+
+          if (control.nextBoardId) {
+            return {
+              ...control,
+              currentBoardId: null,
+              currentBoardNumber: null,
+              lastCompletedBoardId: boardId,
+              lastCompletedAtClient: Date.now()
+            };
+          }
+
+          const currentNumber = Math.max(
+            Number(control.currentBoardNumber) || 0,
+            Number(boardMeta?.number) || 0,
+            Number(control.boardCount) || 0,
+            1
+          );
+          const nextNumber = currentNumber + 1;
+
+          return {
+            ...control,
+            currentBoardId: null,
+            currentBoardNumber: null,
+            nextBoardId: candidateNextBoardId,
+            nextBoardNumber: nextNumber,
+            boardCount: Math.max(
+              Number(control.boardCount) || 0,
+              nextNumber
+            ),
+            lastCompletedBoardId: boardId,
+            lastCompletedAtClient: Date.now()
+          };
+        }
+      );
+
+      if (!transactionResult.committed) {
+        throw new Error(
+          "この活動はすでに終了しているか、現在のボードではありません"
+        );
+      }
+
+      const control = transactionResult.snapshot.val() || {};
+      const nextBoardId = control.nextBoardId;
+      const nextBoardNumber =
+        Number(control.nextBoardNumber) ||
+        Number(control.boardCount) ||
+        currentBoardNumber + 1;
+
+      if (!nextBoardId) {
+        throw new Error("次回用ボードを確認できませんでした");
+      }
+
+      const nextMetaRef = ref(db, `boards/${nextBoardId}/meta`);
+      const nextMetaSnapshot = await get(nextMetaRef);
+      const rootUpdates = {
+        [`boards/${boardId}/meta/status`]: "completed",
+        [`boards/${boardId}/meta/endedAt`]: serverTimestamp(),
+        [`groups/${groupId}/updatedAt`]: serverTimestamp()
+      };
+
+      if (!nextMetaSnapshot.exists()) {
+        rootUpdates[`boards/${nextBoardId}/meta`] = {
+          groupId,
+          groupName,
+          number: nextBoardNumber,
+          title: `第${nextBoardNumber}回の活動`,
+          status: "draft",
+          previousBoardId: boardId,
+          previousNextActions,
+          createdAt: serverTimestamp()
+        };
+      }
+
+      await update(ref(db), rootUpdates);
+      setBoardTool("move");
+      alert(
+        `第${currentBoardNumber}回の活動を終了しました。\n第${nextBoardNumber}回のボードを準備しました。`
+      );
+    } catch (error) {
+      console.error("活動を終了できませんでした", error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "活動を終了できませんでした"
+      );
+    } finally {
+      setEndingActivity(false);
+    }
   };
 
   const addCard = async () => {
@@ -1919,6 +2325,7 @@ const handleUpload = async (event) => {
       );
 
       setReflectionText("");
+      setNextActionText("");
       setReflectionRecord(null);
       setReflectionActivityEvents([]);
       setReflectionPlaybackPosition(0);
@@ -1945,6 +2352,7 @@ const handleUpload = async (event) => {
         "userId",
         "userName",
         "responseText",
+        "nextAction",
         "responseLength",
         "durationMs",
         "submittedAt",
@@ -1961,6 +2369,7 @@ const handleUpload = async (event) => {
         value.userId || child.key,
         value.userName || "",
         value.responseText || "",
+        value.nextAction || "",
         value.responseLength || String(value.responseText || "").length,
         value.durationMs || 0,
         value.submittedAt || "",
@@ -2103,17 +2512,13 @@ const handleUpload = async (event) => {
 
   if (!boardId) {
     return (
-      <BoardSelectionPage
+      <GroupSelectionPage
         currentUser={currentUser}
-        boardInput={boardInput}
-        allBoards={allBoards}
-        onBoardInputChange={setBoardInput}
-        onJoinBoard={joinBoard}
+        groups={selectableGroups}
+        opening={groupOpening}
+        onSelectGroup={selectGroup}
+        onCreateGroup={createGroup}
         onOpenAdmin={() => setScreen("admin")}
-        onEnterBoard={(groupName) => {
-          setBoardInput(groupName);
-          enterBoard(groupName);
-        }}
         onLogout={logout}
       />
     );
@@ -2122,20 +2527,24 @@ const handleUpload = async (event) => {
   return (
     <div className="app">
       <BoardHeader
-        boardId={boardId}
+        boardId={`${groupName} ／ 第${currentBoardNumber}回`}
         currentUser={currentUser}
         reflectionRecord={reflectionRecord}
         boardTool={boardTool}
         onBoardToolChange={(nextTool) => {
+          if (boardIsCompleted) {
+            alert("この活動は終了しているため、ボードは閲覧専用です");
+            return;
+          }
           setBoardTool(nextTool);
           setCardMenuId(null);
           if (nextTool !== "move") {
             setCardDrawingTool("pen");
           }
         }}
-        onClearBoardDrawing={clearBoardDrawing}
-        onAddCard={addCard}
-        onUploadMedia={handleUpload}
+        onClearBoardDrawing={runIfBoardEditable(clearBoardDrawing)}
+        onAddCard={runIfBoardEditable(addCard)}
+        onUploadMedia={runIfBoardEditable(handleUpload)}
         onOpenMembers={() => {
           setSidePanelMode("members");
           setSidePanelOpen(true);
@@ -2151,8 +2560,23 @@ const handleUpload = async (event) => {
         onLogout={logout}
       />
 
+      <ActivityStatusBar
+        groupName={groupName}
+        boardNumber={currentBoardNumber}
+        status={boardMeta?.status || "active"}
+        previousNextAction={previousNextAction}
+        currentNextAction={currentNextAction}
+        isAdmin={currentUser.role === "admin"}
+        ending={endingActivity}
+        onOpenNextAction={() => {
+          setNextActionText(reflectionRecord?.nextAction || "");
+          setNextActionOpen(true);
+        }}
+        onEndActivity={endCurrentActivity}
+      />
+
       <main className="layout">
-        <section className="board">
+        <section className={`board ${boardIsCompleted ? "board-read-only" : ""}`}>
           <div className="board-scroll" ref={boardRef}>
             <div className="zoom-controls">
               <button onClick={zoomOut}>−</button>
@@ -2163,7 +2587,7 @@ const handleUpload = async (event) => {
 
             <div
               ref={boardCanvasRef}
-              className="board-canvas"
+              className={`board-canvas ${boardIsCompleted ? "board-canvas-read-only" : ""}`}
               style={{
                 transform: `scale(${zoom})`,
                 transformOrigin: "top left"
@@ -2206,21 +2630,31 @@ const handleUpload = async (event) => {
 
                     {!isOwner && <div className="lock-label">他の人</div>}
 
-                    <div className="owner-name">{card.ownerName}</div>
+                    <div className="card-header-row">
+                      <div
+                        className="owner-name"
+                        title={card.ownerName || "名前なし"}
+                      >
+                        {card.ownerName || "名前なし"}
+                      </div>
 
-
-                    <select
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      value={card.type || "idea"}
-                      onChange={(e) => changeCardType(id, card, e.target.value)}
-                    >
-                      <option value="idea">アイデア</option>
-                      <option value="problem">課題</option>
-                      <option value="reason">理由</option>
-                      <option value="solution">解決案</option>
-                      <option value="evidence">根拠</option>
-                    </select>
+                      <select
+                        className="card-type-select"
+                        aria-label="付箋の種類"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        value={card.type || "idea"}
+                        onChange={(e) =>
+                          changeCardType(id, card, e.target.value)
+                        }
+                      >
+                        <option value="idea">アイデア</option>
+                        <option value="problem">課題</option>
+                        <option value="reason">理由</option>
+                        <option value="solution">解決案</option>
+                        <option value="evidence">根拠</option>
+                      </select>
+                    </div>
 
 
                     <div
@@ -2419,6 +2853,15 @@ const handleUpload = async (event) => {
         />
       )}
 
+      <NextActionDialog
+        open={nextActionOpen}
+        value={nextActionText}
+        saving={nextActionSaving}
+        onChange={setNextActionText}
+        onClose={() => setNextActionOpen(false)}
+        onSave={saveNextAction}
+      />
+
       <ReflectionDialog
         open={reflectionOpen}
         onClose={closeReflection}
@@ -2586,8 +3029,14 @@ const handleUpload = async (event) => {
                     zIndex: Number(card.zIndex) || 1
                   }}
                 >
-                  <div className="owner-name">{card.ownerName}</div>
-                  <div className="timelapse-card-type">{getCardTypeLabel(card.type || "idea")} ／ ID:{getShortCardId(id)}</div>
+                  <div className="timelapse-card-meta-row">
+                    <div className="owner-name" title={card.ownerName || "名前なし"}>
+                      {card.ownerName || "名前なし"}
+                    </div>
+                    <div className="timelapse-card-type">
+                      {getCardTypeLabel(card.type || "idea")} ／ ID:{getShortCardId(id)}
+                    </div>
+                  </div>
                   <div className="drawing-area drawing-area-full">
                     <PlaybackDrawingCanvas segments={playbackState.drawings[id] || []} />
                   </div>

@@ -3079,12 +3079,404 @@ button {
 
 
 /* =========================================================
-   付箋ヘッダー：作成者名と種類を横並び
+   グループ選択＋活動ボード自動生成 統合版
    ========================================================= */
 
+.group-selection-page {
+  width: 100vw;
+  min-height: 100vh;
+  overflow-y: auto;
+  background: #f5f7fb;
+  color: #172033;
+}
+
+.group-selection-header {
+  min-height: 104px;
+  padding: 20px clamp(20px, 4vw, 56px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid #dce4ef;
+  background: #fff;
+}
+
+.group-selection-header h1,
+.group-selection-title-row h2 {
+  margin: 0;
+}
+
+.group-selection-header p,
+.group-selection-title-row p {
+  margin: 5px 0 0;
+  color: #64748b;
+}
+
+.group-selection-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.group-selection-header-actions button,
+.group-create-toggle {
+  padding: 9px 13px;
+  border: 0;
+  border-radius: 10px;
+  background: #e9eef7;
+  color: #334155;
+  font-weight: 700;
+}
+
+.group-selection-header-actions .danger {
+  background: #ff6b6b;
+  color: #fff;
+}
+
+.group-selection-main {
+  width: min(980px, calc(100vw - 32px));
+  margin: 28px auto 60px;
+}
+
+.group-selection-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.group-create-toggle {
+  background: #2563eb;
+  color: #fff;
+}
+
+.group-create-panel {
+  margin-bottom: 18px;
+  padding: 18px;
+  border: 1px solid #bfdbfe;
+  border-radius: 16px;
+  background: #eff6ff;
+}
+
+.group-create-panel label {
+  display: block;
+  margin-bottom: 7px;
+  font-weight: 700;
+}
+
+.group-create-panel > div {
+  display: flex;
+  gap: 9px;
+}
+
+.group-create-panel input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid #b6c4d7;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+.group-create-panel button {
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 800;
+}
+
+.group-card-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.group-card-button {
+  width: 100%;
+  min-height: 112px;
+  padding: 18px;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  text-align: left;
+  border: 1px solid #dce4ef;
+  border-radius: 16px;
+  background: #fff;
+  color: inherit;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+
+.group-card-button:hover:not(:disabled) {
+  border-color: #93b4ee;
+  background: #fbfdff;
+}
+
+.group-card-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.group-card-icon {
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: #e7f7ed;
+  font-size: 25px;
+}
+
+.group-card-content {
+  min-width: 0;
+}
+
+.group-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.group-card-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 18px;
+}
+
+.group-state {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.group-state.active {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.group-state.draft {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.group-state.empty {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.group-card-content p {
+  margin: 7px 0 0;
+  color: #475569;
+}
+
+.group-card-content small {
+  display: block;
+  margin-top: 7px;
+  color: #8b5e16;
+}
+
+.group-card-action {
+  padding: 9px 14px;
+  border-radius: 10px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 800;
+}
+
+.group-selection-empty {
+  padding: 40px 24px;
+  text-align: center;
+  border: 1px dashed #bac7d8;
+  border-radius: 16px;
+  background: #fff;
+  color: #64748b;
+}
+
+.group-selection-empty strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #334155;
+}
+
+.activity-status-bar {
+  flex: 0 0 auto;
+  min-height: 68px;
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid #d9e1ec;
+  background: #f8fbff;
+}
+
+.activity-status-bar.completed {
+  background: #f1f5f9;
+}
+
+.activity-status-main {
+  min-width: 0;
+}
+
+.activity-status-title-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.activity-status-title-row strong {
+  font-size: 15px;
+}
+
+.activity-status-title-row span {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.activity-status-bar.completed .activity-status-title-row span {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.previous-next-action,
+.current-next-action {
+  margin: 5px 0 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #475569;
+  font-size: 12px;
+}
+
+.current-next-action {
+  color: #1d4ed8;
+}
+
+.activity-status-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+}
+
+.activity-status-actions button {
+  padding: 9px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
+  font-weight: 700;
+}
+
+.activity-status-actions .end-activity-button {
+  border-color: #dc2626;
+  background: #dc2626;
+  color: #fff;
+}
+
+.board-canvas-read-only {
+  pointer-events: none;
+  filter: saturate(0.92);
+}
+
+.next-action-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.next-action-dialog {
+  width: min(560px, 94vw);
+  padding: 20px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.3);
+}
+
+.next-action-dialog header,
+.next-action-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.next-action-dialog header h2 {
+  margin: 0;
+}
+
+.next-action-dialog header p {
+  margin: 4px 0 0;
+  color: #64748b;
+}
+
+.next-action-dialog header > button {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 50%;
+  background: #eef2f7;
+  font-size: 22px;
+}
+
+.next-action-dialog label {
+  display: block;
+  margin: 20px 0 7px;
+  font-weight: 700;
+}
+
+.next-action-dialog textarea {
+  width: 100%;
+  min-height: 150px;
+  padding: 12px;
+  resize: vertical;
+  border: 1px solid #bdc8d8;
+  border-radius: 12px;
+  font-size: 15px;
+}
+
+.next-action-dialog footer {
+  margin-top: 14px;
+  color: #64748b;
+}
+
+.next-action-dialog footer > div {
+  display: flex;
+  gap: 8px;
+}
+
+.next-action-dialog footer button {
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: #e2e8f0;
+  color: #334155;
+  font-weight: 800;
+}
+
+.next-action-dialog footer .primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+/* 通常ボードの付箋上部だけを横並びにする */
 .card .card-header-row {
   position: relative;
-  z-index: 10;
+  z-index: 12;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -3095,70 +3487,154 @@ button {
   margin-bottom: 8px;
 }
 
-/* 既存のabsolute指定を、この行の中だけ解除する */
 .card .card-header-row .owner-name {
   position: static;
   top: auto;
   right: auto;
   left: auto;
   z-index: auto;
-
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
   padding: 0 2px;
-
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-
   font-size: 12px;
   font-weight: 700;
   line-height: 30px;
 }
 
-/* 既存のwidth:100%、margin-top:34pxを、このselectだけ解除する */
 .card .card-header-row .card-type-select {
   position: relative;
-  z-index: 11;
-
+  z-index: 13;
   flex: 0 0 92px;
   width: 92px;
   min-width: 92px;
   max-width: 92px;
   height: 30px;
-
   margin: 0;
   padding: 4px 22px 4px 7px;
-
   border: 1px solid rgba(0, 0, 0, 0.18);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.88);
-
   font-size: 11px;
   font-weight: 700;
 }
 
-/* 他ユーザー表示とヘッダーが重ならないようにする */
 .card .lock-label {
   top: 48px;
 }
 
-@media (max-width: 700px) {
-  .card .card-header-row {
-    gap: 4px;
-    padding-right: 36px;
+.timelapse-card-meta-row {
+  position: relative;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  margin-bottom: 5px;
+}
+
+.timelapse-card-meta-row .owner-name {
+  position: static;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.timelapse-card-meta-row .timelapse-card-type {
+  flex: 0 0 auto;
+  max-width: 58%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 振り返り側だけ縮小。通常ボードには影響させない */
+.three-column-reflection .reflection-mini-timelapse-canvas {
+  width: 2200px;
+  height: 1400px;
+  min-width: 2200px;
+  min-height: 1400px;
+  transform: scale(0.16);
+  transform-origin: top left;
+}
+
+.three-column-reflection .reflection-mini-card,
+.simple-reflection-dialog .timelapse-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: 32px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 6px;
+  overflow: hidden;
+}
+
+.three-column-reflection .reflection-mini-card .owner-name,
+.simple-reflection-dialog .timelapse-card .owner-name {
+  position: static;
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.three-column-reflection .reflection-mini-card .timelapse-card-type,
+.simple-reflection-dialog .timelapse-card .timelapse-card-type {
+  position: static;
+  grid-column: 2;
+  grid-row: 1;
+  max-width: 92px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.three-column-reflection .reflection-mini-card .drawing-area,
+.simple-reflection-dialog .timelapse-card .drawing-area {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 900px) {
+  .group-selection-header,
+  .group-selection-title-row,
+  .activity-status-bar {
+    align-items: stretch;
+    flex-direction: column;
   }
 
-  .card .card-header-row .owner-name {
-    font-size: 11px;
+  .group-selection-header-actions,
+  .activity-status-actions {
+    flex-wrap: wrap;
   }
 
-  .card .card-header-row .card-type-select {
-    flex-basis: 84px;
-    width: 84px;
-    min-width: 84px;
-    max-width: 84px;
-    font-size: 10px;
+  .group-card-button {
+    grid-template-columns: 50px minmax(0, 1fr);
+  }
+
+  .group-card-action {
+    grid-column: 1 / -1;
+    text-align: center;
+  }
+
+  .previous-next-action,
+  .current-next-action {
+    white-space: normal;
+  }
+
+  .three-column-reflection .reflection-mini-timelapse-canvas {
+    transform: scale(0.14);
   }
 }
