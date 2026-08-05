@@ -4,7 +4,6 @@ export default function BoardHeader({
   boardId,
   currentUser,
   reflectionRecord,
-  historyLoading,
   boardTool,
   onBoardToolChange,
   onClearBoardDrawing,
@@ -14,7 +13,6 @@ export default function BoardHeader({
   onOpenCards,
   onOpenReflection,
   onExportReflectionCsv,
-  onOpenTimelapse,
   onOpenAdmin,
   onLeaveBoard,
   onLogout
@@ -33,9 +31,9 @@ export default function BoardHeader({
       </div>
 
       <div className="header-buttons tablet-toolbar">
-        <button className="add-button" onClick={onAddCard}>
-          ＋付箋
-        </button>
+        <div className="toolbar-group toolbar-create" aria-label="追加">
+          <span className="toolbar-group-label">追加</span>
+          <button className="add-button" onClick={onAddCard}>＋付箋</button>
 
         <input
           ref={cameraInputRef}
@@ -45,9 +43,7 @@ export default function BoardHeader({
           onChange={onUploadMedia}
           hidden
         />
-        <button className="add-button" onClick={() => cameraInputRef.current?.click()}>
-          📷撮影
-        </button>
+          <button className="add-button" onClick={() => cameraInputRef.current?.click()}>📷撮影</button>
 
         <input
           ref={mediaInputRef}
@@ -56,45 +52,49 @@ export default function BoardHeader({
           onChange={onUploadMedia}
           hidden
         />
-        <button className="add-button" onClick={() => mediaInputRef.current?.click()}>
-          ＋画像・動画
-        </button>
+          <button className="add-button" onClick={() => mediaInputRef.current?.click()}>＋画像・動画</button>
+        </div>
 
-        <div className="board-tool-group" aria-label="ボード描画ツール">
+        <div className="board-tool-group" aria-label="書き込み先を選ぶ">
+          <span className="toolbar-group-label">書き込み先</span>
           <button
             className={boardTool === "move" ? "active-button" : ""}
             onClick={() => onBoardToolChange("move")}
           >
-            移動
+            付箋を操作
           </button>
           <button
             className={boardTool === "pen" ? "active-button" : ""}
             onClick={() => onBoardToolChange("pen")}
           >
-            ✏ペン
+            ボードに書く
           </button>
-          <button
-            className={boardTool === "eraser" ? "active-button" : ""}
-            onClick={() => onBoardToolChange("eraser")}
-          >
-            消しゴム
-          </button>
-          <button onClick={onClearBoardDrawing}>全消去</button>
+          {boardTool !== "move" && (
+            <>
+              <button
+                className={boardTool === "eraser" ? "active-button" : ""}
+                onClick={() => onBoardToolChange("eraser")}
+              >
+                消しゴム
+              </button>
+              <button onClick={onClearBoardDrawing}>ボードを全消去</button>
+            </>
+          )}
         </div>
 
-        <button onClick={onOpenMembers}>参加者</button>
-        <button onClick={onOpenCards}>付箋一覧</button>
+        <div className="toolbar-group" aria-label="表示">
+          <span className="toolbar-group-label">表示</span>
+          <button onClick={onOpenMembers}>参加者</button>
+          <button onClick={onOpenCards}>付箋一覧</button>
+        </div>
 
         <button className="reflection-button" onClick={onOpenReflection}>
-          {reflectionRecord ? "振り返りを開く" : "振り返り"}
+          {reflectionRecord ? "活動履歴・振り返り" : "活動履歴・振り返り"}
         </button>
 
         {currentUser.role === "admin" && (
           <>
             <button onClick={onExportReflectionCsv}>CSV</button>
-            <button onClick={onOpenTimelapse} disabled={historyLoading}>
-              {historyLoading ? "読込中…" : "履歴"}
-            </button>
             <button className="admin-button" onClick={onOpenAdmin}>
               管理
             </button>

@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import PlaybackDrawingCanvas from "../PlaybackDrawingCanvas";
 import StudentTeacherFeedbackCard from "../feedback/StudentTeacherFeedbackCard";
 import ActivityKeypointList from "./ActivityKeypointList";
@@ -34,12 +33,6 @@ export default function ReflectionDialog({
   boardId,
   currentUserId
 }) {
-  const [tab, setTab] = useState("review");
-
-  useEffect(() => {
-    if (open) setTab("review");
-  }, [open]);
-
   if (!open) return null;
 
   return (
@@ -47,42 +40,14 @@ export default function ReflectionDialog({
       <div className="simple-reflection-dialog">
         <header className="simple-reflection-header">
           <div>
-            <h2>活動の振り返り</h2>
-            <p>活動を見る → 書く → コメントを確認する</p>
+            <h2>活動履歴・振り返り</h2>
+            <p>活動の場面を見ながら、気付いたことをそのまま記録できます。</p>
           </div>
           <button type="button" onClick={onClose} aria-label="閉じる">×</button>
         </header>
 
-        <nav className="simple-reflection-tabs" aria-label="振り返り画面">
-          <button
-            type="button"
-            className={tab === "review" ? "active" : ""}
-            onClick={() => setTab("review")}
-          >
-            1 活動を見る
-          </button>
-          <button
-            type="button"
-            className={tab === "write" ? "active" : ""}
-            onClick={() => setTab("write")}
-          >
-            2 振り返る
-          </button>
-          <button
-            type="button"
-            className={tab === "comment" ? "active" : ""}
-            onClick={() => setTab("comment")}
-          >
-            3 コメント
-            {reflectionRecord?.teacherFeedback?.comment && !reflectionRecord.teacherFeedback.isRead && (
-              <span className="unread-dot" aria-label="未読コメントあり" />
-            )}
-          </button>
-        </nav>
-
         <div className="simple-reflection-body">
-          {tab === "review" && (
-            <div className="simple-review-layout">
+          <div className="simple-review-layout">
               <section className="simple-timelapse-panel">
                 <div className="simple-timelapse-toolbar">
                   <button
@@ -179,29 +144,26 @@ export default function ReflectionDialog({
                   onSelect={onSelectKeypoint}
                 />
               </section>
-            </div>
-          )}
 
-          {tab === "write" && (
-            <ReflectionWritingPanel
-              reflectionText={reflectionText}
-              onReflectionTextChange={onReflectionTextChange}
-              reflectionRecord={reflectionRecord}
-              reflectionSubmitting={reflectionSubmitting}
-              onSubmit={onSubmitReflection}
-              onDelete={onDeleteReflection}
-            />
-          )}
-
-          {tab === "comment" && (
-            <div className="simple-comment-panel">
-              <StudentTeacherFeedbackCard
-                boardId={boardId}
-                userId={currentUserId}
-                feedback={reflectionRecord?.teacherFeedback}
-              />
+              <div className="simple-writing-panel">
+                <ReflectionWritingPanel
+                  reflectionText={reflectionText}
+                  onReflectionTextChange={onReflectionTextChange}
+                  reflectionRecord={reflectionRecord}
+                  reflectionSubmitting={reflectionSubmitting}
+                  onSubmit={onSubmitReflection}
+                  onDelete={onDeleteReflection}
+                />
+                <section className="reflection-inline-comment">
+                  <h3>先生からのコメント</h3>
+                  <StudentTeacherFeedbackCard
+                    boardId={boardId}
+                    userId={currentUserId}
+                    feedback={reflectionRecord?.teacherFeedback}
+                  />
+                </section>
+              </div>
             </div>
-          )}
         </div>
       </div>
     </div>

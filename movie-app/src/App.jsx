@@ -2125,7 +2125,6 @@ const handleUpload = async (event) => {
         boardId={boardId}
         currentUser={currentUser}
         reflectionRecord={reflectionRecord}
-        historyLoading={historyLoading}
         boardTool={boardTool}
         onBoardToolChange={(nextTool) => {
           setBoardTool(nextTool);
@@ -2147,7 +2146,6 @@ const handleUpload = async (event) => {
         }}
         onOpenReflection={openReflection}
         onExportReflectionCsv={exportReflectionCsv}
-        onOpenTimelapse={openTimelapse}
         onOpenAdmin={() => setScreen("admin")}
         onLeaveBoard={leaveBoard}
         onLogout={logout}
@@ -2231,7 +2229,7 @@ const handleUpload = async (event) => {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="drawing-toolbar">
-                        <span>{boardTool === "move" ? "付箋に手書き" : "ボード描画中"}</span>
+                        <span>{boardTool === "move" ? "この付箋に書く" : "ボードへの書き込み中"}</span>
                         <div className="card-drawing-tools">
                           <button
                             type="button"

@@ -211,8 +211,8 @@ button {
   position: absolute;
   left: 0;
   top: 0;
-  width: 1200px;
-  height: 800px;
+  width: 2200px;
+  height: 1400px;
   z-index: 1;
   pointer-events: none;
 }
@@ -2462,7 +2462,7 @@ button {
 }
 
 .simple-reflection-dialog {
-  width: min(1280px, 98vw);
+  width: min(1540px, 98vw);
   height: min(900px, 96vh);
   display: flex;
   flex-direction: column;
@@ -2507,7 +2507,7 @@ button {
   flex: 0 0 auto;
   padding: 10px 14px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
@@ -2548,7 +2548,7 @@ button {
 .simple-review-layout {
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(330px, 0.65fr);
+  grid-template-columns: minmax(420px, 1.15fr) minmax(270px, 0.65fr) minmax(360px, 0.9fr);
   overflow: hidden;
 }
 
@@ -2646,6 +2646,49 @@ button {
 
 .simple-keypoint-panel {
   background: #fff;
+}
+
+.simple-writing-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  border-left: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.simple-writing-panel .reflection-simple-write-panel {
+  height: auto;
+  min-height: 510px;
+  padding: 16px;
+}
+
+.simple-writing-panel .reflection-simple-prompt {
+  padding: 12px;
+}
+
+.simple-writing-panel .reflection-simple-prompt h3 {
+  font-size: 16px;
+}
+
+.simple-writing-panel .reflection-simple-prompt p {
+  font-size: 13px;
+}
+
+.simple-writing-panel .reflection-simple-write-panel > textarea {
+  min-height: 180px;
+}
+
+.reflection-inline-comment {
+  padding: 0 16px 16px;
+}
+
+.reflection-inline-comment h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.reflection-inline-comment .teacher-feedback-card {
+  margin: 0;
 }
 
 .simple-keypoint-heading {
@@ -2854,13 +2897,18 @@ button {
 
   .simple-review-layout {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(420px, 1.1fr) minmax(280px, 0.9fr);
+    grid-template-rows: minmax(420px, 1.1fr) minmax(280px, 0.9fr) minmax(460px, 1fr);
     overflow-y: auto;
   }
 
-  .simple-timelapse-panel {
+  .simple-timelapse-panel,
+  .simple-keypoint-panel {
     border-right: 0;
     border-bottom: 1px solid #e2e8f0;
+  }
+
+  .simple-writing-panel {
+    border-left: 0;
   }
 
   .simple-keypoint-list {
@@ -2935,7 +2983,7 @@ button {
 }
 
 .drawing-area-disabled::after {
-  content: "ボード描画モード中です。付箋に書くときは『移動』を選択してください";
+  content: "ボードへの書き込み中です。付箋に書くときは「付箋を操作」を選択してください";
   position: absolute;
   inset: 40px 8px 8px;
   z-index: 30;
@@ -2951,4 +2999,166 @@ button {
   line-height: 1.5;
   text-align: center;
   pointer-events: none;
+}
+
+/* 操作の対象を明示し、タブレット幅でもヘッダーを崩さない */
+.tablet-header {
+  align-items: flex-start;
+}
+
+.tablet-toolbar {
+  flex: 1 1 680px;
+  gap: 10px;
+}
+
+.toolbar-group,
+.board-tool-group {
+  position: relative;
+  padding: 19px 6px 6px;
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-group-label {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.board-tool-group {
+  gap: 6px;
+  background: #eff6ff;
+}
+
+.board-tool-group .active-button {
+  background: #1d4ed8;
+}
+
+.drawing-toolbar {
+  background: #fff8d8;
+}
+
+.drawing-area-disabled .drawing-toolbar {
+  background: #dbeafe;
+}
+
+@media (max-width: 1180px) {
+  .tablet-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .header-title-area {
+    min-width: 0;
+  }
+
+  .tablet-toolbar {
+    flex-basis: auto;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 700px) {
+  .toolbar-group,
+  .board-tool-group {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}
+
+
+/* =========================================================
+   付箋ヘッダー：作成者名と種類を横並び
+   ========================================================= */
+
+.card .card-header-row {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding-right: 38px;
+  margin-bottom: 8px;
+}
+
+/* 既存のabsolute指定を、この行の中だけ解除する */
+.card .card-header-row .owner-name {
+  position: static;
+  top: auto;
+  right: auto;
+  left: auto;
+  z-index: auto;
+
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0 2px;
+
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 30px;
+}
+
+/* 既存のwidth:100%、margin-top:34pxを、このselectだけ解除する */
+.card .card-header-row .card-type-select {
+  position: relative;
+  z-index: 11;
+
+  flex: 0 0 92px;
+  width: 92px;
+  min-width: 92px;
+  max-width: 92px;
+  height: 30px;
+
+  margin: 0;
+  padding: 4px 22px 4px 7px;
+
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.88);
+
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* 他ユーザー表示とヘッダーが重ならないようにする */
+.card .lock-label {
+  top: 48px;
+}
+
+@media (max-width: 700px) {
+  .card .card-header-row {
+    gap: 4px;
+    padding-right: 36px;
+  }
+
+  .card .card-header-row .owner-name {
+    font-size: 11px;
+  }
+
+  .card .card-header-row .card-type-select {
+    flex-basis: 84px;
+    width: 84px;
+    min-width: 84px;
+    max-width: 84px;
+    font-size: 10px;
+  }
 }
