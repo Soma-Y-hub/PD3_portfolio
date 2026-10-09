@@ -18,3 +18,12 @@ export const CARD_TYPE_LABELS = {
   solution: "解決案",
   evidence: "根拠"
 };
+
+export const DEFAULT_GROUP_IDS = Array.from(
+  { length: 10 },
+  (_, index) => `G${index + 1}`
+);
+
+export const PRESENCE_STALE_MS = 45_000;
+export const MIN_BOARD_ZOOM = 0.5;
+export const MAX_BOARD_ZOOM = 2;

@@ -4,20 +4,6 @@ export const getCardTypeLabel = (type) => {
   return CARD_TYPE_LABELS[type] || "付箋";
 };
 
-const formatTimeOnly = (timestamp) => {
-  if (typeof timestamp !== "number") return "--:--:--";
-  return timeOnlyFormatter.format(new Date(timestamp));
-};
-
-const formatDuration = (durationMs) => {
-  const value = Math.max(0, Number(durationMs) || 0);
-  const totalSeconds = Math.round(value / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  if (minutes === 0) return `${seconds}秒`;
-  return `${minutes}分${seconds}秒`;
-};
 
 export const getShortCardId = (cardId) => {
   if (!cardId) return "不明";

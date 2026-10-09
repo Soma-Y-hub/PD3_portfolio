@@ -5,18 +5,27 @@ export default function ActivityStatusBar({
   previousNextAction,
   currentNextAction,
   isAdmin,
+  submitting,
   ending,
   onOpenNextAction,
-  onEndActivity
+  onSubmitActivity,
+  onFinalizeActivity
 }) {
+  const isSubmitted = status === "submitted";
   const isCompleted = status === "completed";
 
+  const statusLabel = isCompleted
+    ? "活動終了・閲覧専用"
+    : isSubmitted
+      ? "先生の最終確認待ち"
+      : "活動中";
+
   return (
-    <section className={`activity-status-bar ${isCompleted ? "completed" : "active"}`}>
+    <section className={`activity-status-bar ${status}`}>
       <div className="activity-status-main">
         <div className="activity-status-title-row">
           <strong>{groupName}・第{boardNumber}回</strong>
-          <span>{isCompleted ? "活動終了・閲覧専用" : "活動中"}</span>
+          <span>{statusLabel}</span>
         </div>
 
         {previousNextAction && (
@@ -33,18 +42,39 @@ export default function ActivityStatusBar({
       </div>
 
       <div className="activity-status-actions">
-        <button type="button" onClick={onOpenNextAction}>
-          {currentNextAction ? "次回することを編集" : "次回することを決める"}
-        </button>
+        {!isCompleted && (
+          <button type="button" onClick={onOpenNextAction}>
+            {currentNextAction ? "次回することを編集" : "次回することを決める"}
+          </button>
+        )}
 
-        {isAdmin && !isCompleted && (
+        {!isAdmin && status === "active" && (
+          <button
+            type="button"
+            className="submit-activity-button"
+            disabled={submitting}
+            onClick={onSubmitActivity}
+          >
+            {submitting ? "提出中…" : "活動を終了して先生に提出"}
+          </button>
+        )}
+
+        {!isAdmin && isSubmitted && (
+          <button type="button" disabled>先生の確認待ち</button>
+        )}
+
+        {isAdmin && status === "active" && (
+          <span className="teacher-waiting-label">生徒の終了待ち</span>
+        )}
+
+        {isAdmin && isSubmitted && (
           <button
             type="button"
             className="end-activity-button"
             disabled={ending}
-            onClick={onEndActivity}
+            onClick={onFinalizeActivity}
           >
-            {ending ? "終了処理中…" : "活動を終了"}
+            {ending ? "終了処理中…" : "最終確認して活動を終了"}
           </button>
         )}
       </div>

@@ -217,6 +217,26 @@ button {
   pointer-events: none;
 }
 
+.card-connection-layer {
+  position: absolute;
+  inset: 0;
+  width: 2200px;
+  height: 1400px;
+  z-index: 10001;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.card-connection-layer-active {
+  pointer-events: all;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.card-connection-layer path {
+  vector-effect: non-scaling-stroke;
+}
+
 .card {
   position: absolute;
   padding: 12px;
@@ -2221,6 +2241,13 @@ button {
 
 .board-tool-group button {
   min-height: 38px;
+}
+
+.arrow-tool-hint {
+  max-width: 150px;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 .board-drawing-canvas {

@@ -1,4 +1,5 @@
 import PlaybackDrawingCanvas from "../PlaybackDrawingCanvas";
+import PlaybackMediaLayer from "../PlaybackMediaLayer";
 import StudentTeacherFeedbackCard from "../feedback/StudentTeacherFeedbackCard";
 import ActivityKeypointList from "./ActivityKeypointList";
 import ReflectionWritingPanel from "./ReflectionWritingPanel";
@@ -90,7 +91,8 @@ export default function ReflectionDialog({
                   aria-label="タイムラプス再生位置"
                 />
 
-                <div className="simple-timelapse-board">
+                <div className="simple-timelapse-board" aria-label="活動ボードのタイムラプス">
+                  <div className="simple-timelapse-stage">
                   {Object.entries(playbackState.cards || {}).map(([cardId, card]) => {
                     const isFocused = selectedKeypointId &&
                       keypoints.find((event) => event.id === selectedKeypointId)?.cardId === cardId;
@@ -107,14 +109,22 @@ export default function ReflectionDialog({
                           zIndex: card.zIndex || 1
                         }}
                       >
-                        <div className="owner-name">{card.ownerName}</div>
-                        <div className="timelapse-card-type">{getCardTypeLabel(card.type || "idea")}</div>
+                        <div className="timelapse-card-meta-row">
+                          <div className="owner-name" title={card.ownerName || "名前なし"}>
+                            {card.ownerName || "名前なし"}
+                          </div>
+                          <div className="timelapse-card-type">
+                            {getCardTypeLabel(card.type || "idea")}
+                          </div>
+                        </div>
                         <div className="drawing-area drawing-area-full">
                           <PlaybackDrawingCanvas segments={playbackState.drawings?.[cardId] || []} />
                         </div>
                       </div>
                     );
                   })}
+
+                  <PlaybackMediaLayer media={playbackState.media || {}} />
 
                   {(playbackState.boardDrawings || []).length > 0 && (
                     <div className="simple-playback-board-drawing" aria-hidden="true">
@@ -125,6 +135,7 @@ export default function ReflectionDialog({
                   {historyEvents.length === 0 && (
                     <div className="reflection-mini-empty">履歴がありません</div>
                   )}
+                  </div>
                 </div>
               </section>
 

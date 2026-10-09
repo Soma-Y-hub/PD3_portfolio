@@ -7,13 +7,7 @@ export default function useBoardReflections(boardId) {
   const [loading, setLoading] = useState(Boolean(boardId));
 
   useEffect(() => {
-    if (!boardId) {
-      setReflections([]);
-      setLoading(false);
-      return undefined;
-    }
-
-    setLoading(true);
+    if (!boardId) return undefined;
     return onValue(
       ref(db, `boards/${boardId}/reflections`),
       (snapshot) => {
@@ -32,5 +26,5 @@ export default function useBoardReflections(boardId) {
     );
   }, [boardId]);
 
-  return { reflections, loading };
+  return { reflections: boardId ? reflections : [], loading: boardId ? loading : false };
 }

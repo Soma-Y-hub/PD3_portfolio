@@ -64,6 +64,30 @@ export default function BoardHeader({
             付箋を操作
           </button>
           <button
+            className={boardTool === "arrow" ? "active-button" : ""}
+            onClick={() => onBoardToolChange("arrow")}
+            title="付箋の上から別の付箋までドラッグして、手書き矢印でつなぎます"
+          >
+            付箋を矢印でつなぐ
+          </button>
+          <button
+            type="button"
+            className={boardTool === "arrow-erase" ? "active-button" : ""}
+            onClick={() => onBoardToolChange("arrow-erase")}
+            title="消したい矢印の線をクリックまたはタップしてください"
+          >
+            矢印を消す
+          </button>
+          {boardTool === "arrow-erase" && (
+            <span className="arrow-tool-hint">矢印の線を押すと1本削除</span>
+          )}
+          {boardTool === "arrow" && (
+            <span className="arrow-tool-hint">付箋から別の付箋までドラッグ</span>
+          )}
+          {boardTool === "eraser" && (
+            <span className="arrow-tool-hint">消したい矢印をクリック</span>
+          )}
+          <button
             className={boardTool === "pen" ? "active-button" : ""}
             onClick={() => onBoardToolChange("pen")}
           >

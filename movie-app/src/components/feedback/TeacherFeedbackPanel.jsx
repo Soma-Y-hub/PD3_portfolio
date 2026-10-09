@@ -30,19 +30,37 @@ export default function TeacherFeedbackPanel({
   const [comment, setComment] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const selectedReflection = useMemo(() => {
-    return reflections.find((item) => item.userId === selectedUserId) || null;
-  }, [reflections, selectedUserId]);
-
   useEffect(() => {
-    if (!selectedUserId && reflections.length > 0) {
-      setSelectedUserId(reflections[0].userId);
+    if (reflections.length === 0) {
+      setSelectedUserId("");
+      setComment("");
+      return;
     }
+
+    const selectedExists = reflections.some(
+      (item) => item.userId === selectedUserId
+    );
+
+    if (!selectedExists) {
+      const firstReflection = reflections[0];
+      setSelectedUserId(firstReflection.userId);
+      setComment(firstReflection.teacherFeedback?.comment || "");
+    }
+
   }, [reflections, selectedUserId]);
 
-  useEffect(() => {
-    setComment(selectedReflection?.teacherFeedback?.comment || "");
-  }, [selectedReflection]);
+  const effectiveSelectedUserId = useMemo(() => {
+    if (reflections.some((item) => item.userId === selectedUserId)) {
+      return selectedUserId;
+    }
+    return reflections[0]?.userId || "";
+  }, [reflections, selectedUserId]);
+
+  const selectedReflection = useMemo(() => {
+    return reflections.find((item) => item.userId === effectiveSelectedUserId) || null;
+  }, [reflections, effectiveSelectedUserId]);
+
+  const displayedComment = comment;
 
   const handleSave = async () => {
     if (!selectedReflection) return;
@@ -132,8 +150,11 @@ export default function TeacherFeedbackPanel({
               <button
                 type="button"
                 key={reflection.userId}
-                className={reflection.userId === selectedUserId ? "active" : ""}
-                onClick={() => setSelectedUserId(reflection.userId)}
+                className={reflection.userId === effectiveSelectedUserId ? "active" : ""}
+                onClick={() => {
+                  setSelectedUserId(reflection.userId);
+                  setComment(reflection.teacherFeedback?.comment || "");
+                }}
               >
                 <strong>{reflection.userName || reflection.userId}</strong>
                 <span>{formatDate(Number(reflection.submittedAtClient || reflection.submittedAt || 0))}</span>
@@ -161,14 +182,14 @@ export default function TeacherFeedbackPanel({
                 <label htmlFor="teacher-feedback-textarea">先生からのコメント</label>
                 <textarea
                   id="teacher-feedback-textarea"
-                  value={comment}
+                  value={displayedComment}
                   onChange={(event) => setComment(event.target.value)}
                   placeholder="生徒へのコメントを入力してください"
                   maxLength={1000}
                 />
 
                 <div className="admin-feedback-footer">
-                  <span>{comment.length} / 1000文字</span>
+                  <span>{displayedComment.length} / 1000文字</span>
                   <div>
                     {selectedReflection.teacherFeedback?.comment && (
                       <button

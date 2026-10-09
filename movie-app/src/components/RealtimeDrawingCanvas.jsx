@@ -78,7 +78,8 @@ export default function RealtimeDrawingCanvas({
     const canvas = canvasRef.current;
     if (!canvas || !boardId || !cardId) return undefined;
 
-    storedSegmentsRef.current.clear();
+    const storedSegments = storedSegmentsRef.current;
+    storedSegments.clear();
     resizeCanvasToDisplaySize(canvas);
     clearCanvas(canvas);
 
@@ -91,11 +92,11 @@ export default function RealtimeDrawingCanvas({
     const unsubscribeAdded = onChildAdded(segmentsDbRef, (snapshot) => {
       const segment = snapshot.val();
       if (!segment) return;
-      storedSegmentsRef.current.set(snapshot.key, segment);
+      storedSegments.set(snapshot.key, segment);
       drawSegmentOnCanvas(canvasRef.current, segment);
     });
     const unsubscribeRemoved = onChildRemoved(segmentsDbRef, (snapshot) => {
-      storedSegmentsRef.current.delete(snapshot.key);
+      storedSegments.delete(snapshot.key);
       redrawAllSegments();
     });
 
@@ -103,7 +104,7 @@ export default function RealtimeDrawingCanvas({
       resizeObserver.disconnect();
       unsubscribeAdded();
       unsubscribeRemoved();
-      storedSegmentsRef.current.clear();
+      storedSegments.clear();
     };
   }, [boardId, cardId]);
 

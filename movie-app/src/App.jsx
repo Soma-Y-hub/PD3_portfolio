@@ -53,6 +53,7 @@ import { uploadMedia, deleteMediaFile } from "./services/mediaService";
 import AdminFeedbackFeature from "./components/feedback/AdminFeedbackFeature";
 import ReflectionDialog from "./components/reflection/ReflectionDialog";
 import BoardDrawingCanvas from "./components/board/BoardDrawingCanvas";
+import CardConnectionLayer from "./components/board/CardConnectionLayer";
 import CardMenu from "./components/board/CardMenu";
 import MemberPanel from "./components/board/MemberPanel";
 import StickyNoteList from "./components/board/StickyNoteList";
@@ -99,9 +100,6 @@ export default function App() {
   const [movingMedia, setMovingMedia] = useState(null);
   const [resizingMedia, setResizingMedia] = useState(null);
   const [resizingCard, setResizingCard] = useState(null);
-
-  const [connectMode, setConnectMode] = useState(false);
-  const [connectFrom, setConnectFrom] = useState(null);
 
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [sidePanelMode, setSidePanelMode] = useState("members");
@@ -575,8 +573,6 @@ export default function App() {
     setMovingMedia(null);
     setResizingMedia(null);
     setResizingCard(null);
-    setConnectMode(false);
-    setConnectFrom(null);
     setSidePanelOpen(false);
     setSidePanelMode("members");
     setZoom(1);
@@ -1239,7 +1235,7 @@ const handleUpload = async (event) => {
   };
 
   const handlePointerDown = (e, id, card) => {
-    if (boardTool !== "move" || connectMode || resizingCard || drawingRef.current.isDrawing) return;
+    if (boardTool !== "move" || resizingCard || drawingRef.current.isDrawing) return;
     e.preventDefault();
 
     const point = getBoardPoint(e);
@@ -1262,7 +1258,7 @@ const handleUpload = async (event) => {
   };
 
   const handlePointerMove = (e) => {
-    if (connectMode || resizingCard || drawingRef.current.isDrawing) return;
+    if (resizingCard || drawingRef.current.isDrawing) return;
     if (!movingCard) return;
 
     const card = cards[movingCard.id];
@@ -1308,7 +1304,7 @@ const handleUpload = async (event) => {
   };
 
   const handleMediaPointerDown = (e, mediaId, media) => {
-    if (boardTool !== "move" || connectMode || movingCard || resizingCard || drawingRef.current.isDrawing) return;
+    if (boardTool !== "move" || movingCard || resizingCard || drawingRef.current.isDrawing) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -1529,7 +1525,7 @@ const handleUpload = async (event) => {
   };
 
   const startResizeCard = (e, id, card) => {
-    if (boardTool !== "move" || connectMode || drawingRef.current.isDrawing) return;
+    if (boardTool !== "move" || drawingRef.current.isDrawing) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -1848,7 +1844,7 @@ const handleUpload = async (event) => {
   };
 
   const startDrawOnCard = (e, cardId, canEdit) => {
-    if (!canEdit || connectMode || resizingCard) return;
+    if (!canEdit || resizingCard) return;
     if (!boardId || !currentUserId || !currentUser) return;
 
     e.preventDefault();
@@ -2126,57 +2122,70 @@ const handleUpload = async (event) => {
     focusedCardTimerRef.current = window.setTimeout(() => setFocusedCardId(null), 2200);
   };
 
-  const connectCards = async (fromId, toId) => {
-    if (!fromId || !toId || fromId === toId) return;
-
+  const createHandDrawnConnection = async (connection) => {
+    if (!boardId || boardIsCompleted) return;
     const connectionRef = push(ref(db, `boards/${boardId}/connections`));
     const historyRef = push(ref(db, `boards/${boardId}/history`));
-    const connection = {
-      from: fromId,
-      to: toId,
-      color: "#333333",
+    const timestamp = serverTimestamp();
+    const connectionData = {
+      ...connection,
       owner: currentUserId,
       ownerName: currentUser.name
     };
-    const timestamp = serverTimestamp();
 
     await update(ref(db, `boards/${boardId}`), {
-      [`connections/${connectionRef.key}`]: { ...connection, createdAt: timestamp },
+      [`connections/${connectionRef.key}`]: {
+        ...connectionData,
+        createdAt: timestamp
+      },
       [`history/${historyRef.key}`]: {
         type: "connection_created",
         connectionId: connectionRef.key,
         userId: currentUserId,
         userName: currentUser.name,
-        payload: { connection },
+        payload: { connection: connectionData },
         timestamp
       }
     });
   };
 
-  const handleConnectCard = (cardId) => {
-    if (!connectMode) return;
-    if (!connectFrom) {
-      setConnectFrom(cardId);
+  const deleteHandDrawnConnection = async (connectionId, connection) => {
+    if (!boardId || !currentUser || !connectionId || !connection) return;
+
+    if (boardIsCompleted) {
+      alert("活動終了後は矢印を削除できません。");
       return;
     }
-    connectCards(connectFrom, cardId);
-    setConnectFrom(null);
-  };
 
-  const deleteConnection = async (connectionId) => {
-    const historyRef = push(ref(db, `boards/${boardId}/history`));
-    const timestamp = serverTimestamp();
-    await update(ref(db, `boards/${boardId}`), {
-      [`connections/${connectionId}`]: null,
-      [`history/${historyRef.key}`]: {
+    if (
+      currentUser.role !== "admin" &&
+      connection.owner !== currentUserId
+    ) {
+      alert("他のユーザーが作成した矢印は削除できません。");
+      return;
+    }
+
+    try {
+      const historyRef = push(ref(db, `boards/${boardId}/history`));
+      const activityRef = push(ref(db, `boards/${boardId}/activityEvents`));
+      const deletedEvent = {
         type: "connection_deleted",
         connectionId,
         userId: currentUserId,
         userName: currentUser.name,
-        payload: {},
-        timestamp
-      }
-    });
+        payload: { connection },
+        timestamp: serverTimestamp()
+      };
+
+      await update(ref(db, `boards/${boardId}`), {
+        [`connections/${connectionId}`]: null,
+        [`history/${historyRef.key}`]: deletedEvent,
+        [`activityEvents/${activityRef.key}`]: deletedEvent
+      });
+    } catch (error) {
+      console.error("矢印の削除に失敗しました", error);
+      alert(`矢印を削除できませんでした: ${error.message}`);
+    }
   };
 
   const openReflection = async () => {
@@ -2658,12 +2667,12 @@ const handleUpload = async (event) => {
 
 
                     <div
-                      className={`drawing-area drawing-area-full ${boardTool !== "move" ? "drawing-area-disabled" : ""}`}
+                      className={`drawing-area drawing-area-full ${["pen", "eraser"].includes(boardTool) ? "drawing-area-disabled" : ""}`}
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="drawing-toolbar">
-                        <span>{boardTool === "move" ? "この付箋に書く" : "ボードへの書き込み中"}</span>
+                        <span>{boardTool === "move" ? "この付箋に書く" : boardTool === "arrow" ? "矢印で接続中" : "ボードへの書き込み中"}</span>
                         <div className="card-drawing-tools">
                           <button
                             type="button"
@@ -2821,6 +2830,13 @@ const handleUpload = async (event) => {
                 currentUserId={currentUserId}
                 currentUser={currentUser}
                 tool={boardTool}
+              />
+              <CardConnectionLayer
+                cards={cards}
+                connections={connections}
+                tool={boardTool}
+                onCreateConnection={createHandDrawnConnection}
+                onDeleteConnection={deleteHandDrawnConnection}
               />
             </div>
           </div>

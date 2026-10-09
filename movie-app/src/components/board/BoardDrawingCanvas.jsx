@@ -1,10 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   onChildAdded,
   onChildRemoved,
   push,
   ref,
-  remove,
   serverTimestamp,
   update
 } from "firebase/database";
@@ -18,38 +17,32 @@ import {
 import { DRAWING_COLOR, DRAWING_WIDTH_PX } from "../../constants/appConstants";
 
 const ERASER_RADIUS = 24;
+const MIN_POINT_DISTANCE = 1.2;
+const ERASER_INTERVAL_MS = 55;
 
 function getCanvasPoint(event, canvas) {
   const rect = canvas.getBoundingClientRect();
   const layoutWidth = canvas.clientWidth;
   const layoutHeight = canvas.clientHeight;
 
-  if (
-    rect.width === 0 ||
-    rect.height === 0 ||
-    layoutWidth === 0 ||
-    layoutHeight === 0
-  ) {
+  if (!rect.width || !rect.height || !layoutWidth || !layoutHeight) {
     return { x: 0, y: 0 };
   }
 
-  // board-canvas は CSS transform: scale(...) で拡大縮小されるため、
-  // 画面上の座標を拡大前のボード座標へ戻す。
-  const scaleX = layoutWidth / rect.width;
-  const scaleY = layoutHeight / rect.height;
-
   return {
-    x: Math.max(0, Math.min(layoutWidth, (event.clientX - rect.left) * scaleX)),
-    y: Math.max(0, Math.min(layoutHeight, (event.clientY - rect.top) * scaleY))
+    x: Math.max(0, Math.min(layoutWidth, (event.clientX - rect.left) * (layoutWidth / rect.width))),
+    y: Math.max(0, Math.min(layoutHeight, (event.clientY - rect.top) * (layoutHeight / rect.height)))
   };
+}
+
+function pointDistance(a, b) {
+  return Math.hypot((b?.x || 0) - (a?.x || 0), (b?.y || 0) - (a?.y || 0));
 }
 
 function pointToSegmentDistance(point, a, b) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
-  if (dx === 0 && dy === 0) {
-    return Math.hypot(point.x - a.x, point.y - a.y);
-  }
+  if (dx === 0 && dy === 0) return Math.hypot(point.x - a.x, point.y - a.y);
 
   const t = Math.max(
     0,
@@ -63,10 +56,7 @@ function pointToSegmentDistance(point, a, b) {
 function convertPoints(segment, canvas) {
   const points = normalizeStoredPoints(segment?.points);
   if (segment?.coordinateMode === "pixel") {
-    return points.map((point) => ({
-      x: Number(point.x) || 0,
-      y: Number(point.y) || 0
-    }));
+    return points.map((point) => ({ x: Number(point.x) || 0, y: Number(point.y) || 0 }));
   }
 
   return points.map((point) => ({
@@ -91,30 +81,64 @@ export default function BoardDrawingCanvas({
   boardId,
   currentUserId,
   currentUser,
-  tool
+  tool,
+  disabled = false
 }) {
   const canvasRef = useRef(null);
   const storedSegmentsRef = useRef(new Map());
   const gestureRef = useRef({ active: false });
+  const animationFrameRef = useRef(null);
   const lastErasedStrokeRef = useRef("");
+  const lastEraseAtRef = useRef(0);
+  const locallyCommittedStrokeIdsRef = useRef(new Set());
 
-  const redraw = () => {
+  const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     clearCanvas(canvas);
     storedSegmentsRef.current.forEach((segment) => drawSegmentOnCanvas(canvas, segment));
-  };
+  }, []);
+
+  const drawQueuedPoints = useCallback(() => {
+    animationFrameRef.current = null;
+    const canvas = canvasRef.current;
+    const gesture = gestureRef.current;
+    if (!canvas || !gesture.active || gesture.mode !== "pen") return;
+
+    const points = gesture.queuedPoints.splice(0);
+    if (points.length === 0) return;
+
+    const segmentPoints = gesture.lastRenderedPoint
+      ? [gesture.lastRenderedPoint, ...points]
+      : points;
+
+    drawSegmentOnCanvas(canvas, {
+      coordinateMode: "pixel",
+      widthPx: DRAWING_WIDTH_PX,
+      color: DRAWING_COLOR,
+      points: segmentPoints
+    });
+
+    gesture.lastRenderedPoint = segmentPoints[segmentPoints.length - 1];
+  }, []);
+
+  const scheduleQueuedDraw = useCallback(() => {
+    if (animationFrameRef.current !== null) return;
+    animationFrameRef.current = requestAnimationFrame(drawQueuedPoints);
+  }, [drawQueuedPoints]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !boardId) return undefined;
 
-    storedSegmentsRef.current.clear();
-    resizeCanvasToDisplaySize(canvas);
+    const storedSegments = storedSegmentsRef.current;
+    storedSegments.clear();
+    // 4000×2000の巨大CanvasではDPRを1に制限してメモリと再描画負荷を抑える。
+    resizeCanvasToDisplaySize(canvas, { maxPixelRatio: 1 });
     clearCanvas(canvas);
 
     const resizeObserver = new ResizeObserver(() => {
-      if (resizeCanvasToDisplaySize(canvas)) redraw();
+      if (resizeCanvasToDisplaySize(canvas, { maxPixelRatio: 1 })) redraw();
     });
     resizeObserver.observe(canvas);
 
@@ -122,11 +146,19 @@ export default function BoardDrawingCanvas({
     const unsubscribeAdded = onChildAdded(segmentsRef, (snapshot) => {
       const segment = snapshot.val();
       if (!segment) return;
-      storedSegmentsRef.current.set(snapshot.key, segment);
-      redraw();
+      storedSegments.set(snapshot.key, segment);
+
+      if (locallyCommittedStrokeIdsRef.current.has(snapshot.key)) {
+        locallyCommittedStrokeIdsRef.current.delete(snapshot.key);
+        return;
+      }
+
+      // 追加時は全体再描画せず、新しい線だけを描く。
+      drawSegmentOnCanvas(canvas, segment);
     });
+
     const unsubscribeRemoved = onChildRemoved(segmentsRef, (snapshot) => {
-      storedSegmentsRef.current.delete(snapshot.key);
+      storedSegments.delete(snapshot.key);
       redraw();
     });
 
@@ -134,15 +166,23 @@ export default function BoardDrawingCanvas({
       resizeObserver.disconnect();
       unsubscribeAdded();
       unsubscribeRemoved();
-      storedSegmentsRef.current.clear();
+      storedSegments.clear();
+      if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+      gestureRef.current = { active: false };
     };
-  }, [boardId]);
+  }, [boardId, redraw]);
 
   const eraseNearestStroke = async (event) => {
+    const now = performance.now();
+    if (now - lastEraseAtRef.current < ERASER_INTERVAL_MS) return;
+    lastEraseAtRef.current = now;
+
     const canvas = canvasRef.current;
     if (!canvas || !boardId) return;
     const point = getCanvasPoint(event, canvas);
 
+    /** @type {string | null} */
     let targetKey = null;
     /** @type {any} */
     let targetSegment = null;
@@ -176,10 +216,7 @@ export default function BoardDrawingCanvas({
       type: "board_drawing_stroke_erased",
       userId: currentUserId,
       userName: currentUser?.name || "",
-      payload: {
-        strokeId,
-        segmentIds: segmentEntries.map(([key]) => key)
-      },
+      payload: { strokeId, segmentIds: segmentEntries.map(([key]) => key) },
       timestamp: serverTimestamp()
     };
 
@@ -187,42 +224,38 @@ export default function BoardDrawingCanvas({
   };
 
   const handlePointerDown = (event) => {
-    if (tool === "move" || !currentUserId || !currentUser) return;
+    if (disabled || tool === "move" || !currentUserId || !currentUser) return;
     event.preventDefault();
     event.stopPropagation();
 
     const canvas = canvasRef.current;
     if (!canvas) return;
-    resizeCanvasToDisplaySize(canvas);
+    resizeCanvasToDisplaySize(canvas, { maxPixelRatio: 1 });
     canvas.setPointerCapture?.(event.pointerId);
 
     if (tool === "eraser") {
       gestureRef.current = { active: true, mode: "eraser", pointerId: event.pointerId };
       lastErasedStrokeRef.current = "";
+      lastEraseAtRef.current = 0;
       eraseNearestStroke(event).catch(console.error);
       return;
     }
 
     const point = getCanvasPoint(event, canvas);
     const strokeId = push(ref(db, `boards/${boardId}/boardDrawing/segments`)).key;
+    if (!strokeId) return;
+
     gestureRef.current = {
       active: true,
       mode: "pen",
       pointerId: event.pointerId,
       strokeId,
       points: [point],
-      lastPoint: point
+      queuedPoints: [point],
+      lastAcceptedPoint: point,
+      lastRenderedPoint: null
     };
-
-    const ctx = canvas.getContext("2d");
-    const ratio = window.devicePixelRatio || 1;
-    ctx.save();
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    ctx.fillStyle = DRAWING_COLOR;
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, DRAWING_WIDTH_PX / 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    scheduleQueuedDraw();
   };
 
   const handlePointerMove = (event) => {
@@ -237,27 +270,18 @@ export default function BoardDrawingCanvas({
     }
 
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const events = event.getCoalescedEvents ? event.getCoalescedEvents() : [event];
-    const ctx = canvas.getContext("2d");
-    const ratio = window.devicePixelRatio || 1;
 
     events.forEach((pointerEvent) => {
       const point = getCanvasPoint(pointerEvent, canvas);
-      const previous = gestureRef.current.lastPoint;
-      ctx.save();
-      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-      ctx.strokeStyle = DRAWING_COLOR;
-      ctx.lineWidth = DRAWING_WIDTH_PX;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.beginPath();
-      ctx.moveTo(previous.x, previous.y);
-      ctx.lineTo(point.x, point.y);
-      ctx.stroke();
-      ctx.restore();
+      if (pointDistance(gestureRef.current.lastAcceptedPoint, point) < MIN_POINT_DISTANCE) return;
       gestureRef.current.points.push(point);
-      gestureRef.current.lastPoint = point;
+      gestureRef.current.queuedPoints.push(point);
+      gestureRef.current.lastAcceptedPoint = point;
     });
+
+    scheduleQueuedDraw();
   };
 
   const handlePointerEnd = async (event) => {
@@ -265,6 +289,12 @@ export default function BoardDrawingCanvas({
     if (!gesture.active || gesture.pointerId !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
+
+    if (animationFrameRef.current !== null) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    drawQueuedPoints();
 
     try {
       canvasRef.current?.releasePointerCapture?.(event.pointerId);
@@ -279,8 +309,8 @@ export default function BoardDrawingCanvas({
     const segment = {
       strokeId: gesture.strokeId,
       coordinateMode: "pixel",
-      baseWidth: canvasRef.current?.clientWidth || 2200,
-      baseHeight: canvasRef.current?.clientHeight || 1400,
+      baseWidth: canvasRef.current?.clientWidth || 4000,
+      baseHeight: canvasRef.current?.clientHeight || 2000,
       points: gesture.points,
       color: DRAWING_COLOR,
       widthPx: DRAWING_WIDTH_PX,
@@ -290,19 +320,14 @@ export default function BoardDrawingCanvas({
     const historyRef = push(ref(db, `boards/${boardId}/history`));
     const timestamp = serverTimestamp();
 
+    locallyCommittedStrokeIdsRef.current.add(gesture.strokeId);
     await update(ref(db, `boards/${boardId}`), {
-      [`boardDrawing/segments/${gesture.strokeId}`]: {
-        ...segment,
-        createdAt: timestamp
-      },
+      [`boardDrawing/segments/${gesture.strokeId}`]: { ...segment, createdAt: timestamp },
       [`history/${historyRef.key}`]: {
         type: "board_drawing_segment",
         userId: currentUserId,
         userName: currentUser?.name || "",
-        payload: {
-          segmentId: gesture.strokeId,
-          segment
-        },
+        payload: { segmentId: gesture.strokeId, segment },
         timestamp
       }
     });
@@ -311,13 +336,14 @@ export default function BoardDrawingCanvas({
   return (
     <canvas
       ref={canvasRef}
-      className={`board-drawing-canvas board-tool-${tool} ${tool === "move" ? "board-drawing-disabled" : "board-drawing-enabled"}`}
+      className={`board-drawing-canvas board-tool-${tool} ${disabled || tool === "move" ? "board-drawing-disabled" : "board-drawing-enabled"}`}
       aria-label="ボード全体の手書き入力"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerEnd}
       onPointerCancel={handlePointerEnd}
       onLostPointerCapture={handlePointerEnd}
+      style={{ touchAction: disabled || tool === "move" ? "auto" : "none" }}
     />
   );
 }

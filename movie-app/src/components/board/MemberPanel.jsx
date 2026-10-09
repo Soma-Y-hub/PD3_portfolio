@@ -17,7 +17,7 @@ function getPresence(member, now) {
 }
 
 export default function MemberPanel({ members }) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(0);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 5_000);
