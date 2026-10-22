@@ -2,8 +2,8 @@ import { useRef } from "react";
 
 export default function BoardHeader({
   boardId,
+  readOnly = false,
   currentUser,
-  reflectionRecord,
   boardTool,
   onBoardToolChange,
   onClearBoardDrawing,
@@ -11,6 +11,7 @@ export default function BoardHeader({
   onUploadMedia,
   onOpenMembers,
   onOpenCards,
+  onOpenArchives,
   onOpenReflection,
   onExportReflectionCsv,
   onOpenAdmin,
@@ -30,8 +31,17 @@ export default function BoardHeader({
         </p>
       </div>
 
+      <button
+        type="button"
+        className="board-archive-shortcut"
+        onClick={onOpenArchives}
+        title="閲覧できる終了済みボードを開きます"
+      >
+        過去のボード
+      </button>
+
       <div className="header-buttons tablet-toolbar">
-        <div className="toolbar-group toolbar-create" aria-label="追加">
+        <fieldset disabled={readOnly} className="toolbar-group toolbar-create school-toolbar-fieldset" aria-label="追加">
           <span className="toolbar-group-label">追加</span>
           <button className="add-button" onClick={onAddCard}>＋付箋</button>
 
@@ -53,9 +63,20 @@ export default function BoardHeader({
           hidden
         />
           <button className="add-button" onClick={() => mediaInputRef.current?.click()}>＋画像・動画</button>
-        </div>
+          <button
+            type="button"
+            className={boardTool === "crop" ? "active-button" : ""}
+            aria-pressed={boardTool === "crop"}
+            onClick={() => onBoardToolChange(boardTool === "crop" ? "move" : "crop")}
+          >
+            ✂ トリミング
+          </button>
+          {boardTool === "crop" && (
+            <span className="image-crop-tool-hint" role="status">ボード上の画像を選択してください</span>
+          )}
+        </fieldset>
 
-        <div className="board-tool-group" aria-label="書き込み先を選ぶ">
+        <fieldset disabled={readOnly} className="board-tool-group school-toolbar-fieldset" aria-label="書き込み先を選ぶ">
           <span className="toolbar-group-label">書き込み先</span>
           <button
             className={boardTool === "move" ? "active-button" : ""}
@@ -93,7 +114,7 @@ export default function BoardHeader({
           >
             ボードに書く
           </button>
-          {boardTool !== "move" && (
+          {boardTool !== "move" && boardTool !== "crop" && (
             <>
               <button
                 className={boardTool === "eraser" ? "active-button" : ""}
@@ -104,16 +125,18 @@ export default function BoardHeader({
               <button onClick={onClearBoardDrawing}>ボードを全消去</button>
             </>
           )}
-        </div>
+        </fieldset>
 
         <div className="toolbar-group" aria-label="表示">
           <span className="toolbar-group-label">表示</span>
-          <button onClick={onOpenMembers}>参加者</button>
+          {currentUser.role === "admin" && (
+            <button onClick={onOpenMembers}>参加者</button>
+          )}
           <button onClick={onOpenCards}>付箋一覧</button>
         </div>
 
         <button className="reflection-button" onClick={onOpenReflection}>
-          {reflectionRecord ? "活動履歴・振り返り" : "活動履歴・振り返り"}
+          {readOnly ? "タイムラプスを見る" : "活動履歴・振り返り"}
         </button>
 
         {currentUser.role === "admin" && (

@@ -1,11 +1,14 @@
 import PlaybackDrawingCanvas from "../PlaybackDrawingCanvas";
-import PlaybackMediaLayer from "../PlaybackMediaLayer";
+import { getArrowPath, getCurrentPoints } from "../board/CardConnectionLayer";
 import StudentTeacherFeedbackCard from "../feedback/StudentTeacherFeedbackCard";
 import ActivityKeypointList from "./ActivityKeypointList";
 import ReflectionWritingPanel from "./ReflectionWritingPanel";
 
 export default function ReflectionDialog({
   open,
+  readOnly = false,
+  reflectionReadOnly = false,
+  allowDeleteReflection = true,
   onClose,
   historyEvents,
   playbackDuration,
@@ -91,8 +94,28 @@ export default function ReflectionDialog({
                   aria-label="タイムラプス再生位置"
                 />
 
-                <div className="simple-timelapse-board" aria-label="活動ボードのタイムラプス">
-                  <div className="simple-timelapse-stage">
+                <div className="simple-timelapse-board">
+                  <svg
+                    className="simple-playback-connection-layer"
+                    viewBox="0 0 2200 1400"
+                    aria-hidden="true"
+                  >
+                    {Object.entries(playbackState.connections || {}).map(([connectionId, connection]) => {
+                      const points = getCurrentPoints(connection, playbackState.cards || {});
+                      if (points.length < 2) return null;
+                      return (
+                        <path
+                          key={connectionId}
+                          d={getArrowPath(points)}
+                          fill="none"
+                          stroke={connection.color || "#333333"}
+                          strokeWidth="4"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      );
+                    })}
+                  </svg>
                   {Object.entries(playbackState.cards || {}).map(([cardId, card]) => {
                     const isFocused = selectedKeypointId &&
                       keypoints.find((event) => event.id === selectedKeypointId)?.cardId === cardId;
@@ -109,22 +132,14 @@ export default function ReflectionDialog({
                           zIndex: card.zIndex || 1
                         }}
                       >
-                        <div className="timelapse-card-meta-row">
-                          <div className="owner-name" title={card.ownerName || "名前なし"}>
-                            {card.ownerName || "名前なし"}
-                          </div>
-                          <div className="timelapse-card-type">
-                            {getCardTypeLabel(card.type || "idea")}
-                          </div>
-                        </div>
+                        <div className="owner-name">{card.ownerName}</div>
+                        <div className="timelapse-card-type">{getCardTypeLabel(card.type || "idea")}</div>
                         <div className="drawing-area drawing-area-full">
                           <PlaybackDrawingCanvas segments={playbackState.drawings?.[cardId] || []} />
                         </div>
                       </div>
                     );
                   })}
-
-                  <PlaybackMediaLayer media={playbackState.media || {}} />
 
                   {(playbackState.boardDrawings || []).length > 0 && (
                     <div className="simple-playback-board-drawing" aria-hidden="true">
@@ -135,7 +150,6 @@ export default function ReflectionDialog({
                   {historyEvents.length === 0 && (
                     <div className="reflection-mini-empty">履歴がありません</div>
                   )}
-                  </div>
                 </div>
               </section>
 
@@ -158,6 +172,8 @@ export default function ReflectionDialog({
 
               <div className="simple-writing-panel">
                 <ReflectionWritingPanel
+                  readOnly={reflectionReadOnly}
+                  allowDelete={allowDeleteReflection}
                   reflectionText={reflectionText}
                   onReflectionTextChange={onReflectionTextChange}
                   reflectionRecord={reflectionRecord}
@@ -168,6 +184,7 @@ export default function ReflectionDialog({
                 <section className="reflection-inline-comment">
                   <h3>先生からのコメント</h3>
                   <StudentTeacherFeedbackCard
+                    readOnly={readOnly}
                     boardId={boardId}
                     userId={currentUserId}
                     feedback={reflectionRecord?.teacherFeedback}

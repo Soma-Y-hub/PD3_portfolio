@@ -1,0 +1,189 @@
+.admin-reflection-overview {
+  padding: 24px clamp(16px, 3vw, 36px) 40px;
+}
+
+.admin-reflection-overview-heading,
+.admin-reflection-session > summary,
+.admin-reflection-entry-heading,
+.admin-reflection-entry-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.admin-reflection-overview-heading h2,
+.admin-reflection-overview-heading p {
+  margin: 0;
+}
+
+.admin-reflection-overview-heading p {
+  margin-top: 5px;
+  color: #64748b;
+}
+
+.admin-reflection-overview-heading > strong,
+.admin-reflection-count {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 13px;
+}
+
+.admin-reflection-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0;
+  padding: 14px;
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.admin-reflection-filters label,
+.admin-reflection-comment-field {
+  display: grid;
+  gap: 6px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-reflection-filters select,
+.admin-reflection-filters input,
+.admin-reflection-comment-field textarea {
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: white;
+  color: #172033;
+  font: inherit;
+}
+
+.admin-reflection-search {
+  flex: 1 1 260px;
+}
+
+.admin-reflection-session-list {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-reflection-session {
+  overflow: hidden;
+  border: 1px solid #d7e1ef;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.admin-reflection-session > summary {
+  min-height: 66px;
+  padding: 14px 18px;
+  background: #f8fafc;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.admin-reflection-session > summary > span:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-reflection-session > summary small,
+.admin-reflection-entry-heading time {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.admin-reflection-session-entries {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 14px;
+  padding: 16px;
+}
+
+.admin-reflection-entry {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.admin-reflection-entry-heading h3 {
+  margin: 0 0 4px;
+}
+
+.admin-reflection-answer {
+  margin: 14px 0;
+  padding: 12px;
+  border-radius: 9px;
+  background: #f8fafc;
+  line-height: 1.65;
+}
+
+.admin-reflection-answer p {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.admin-reflection-comment-field textarea {
+  min-height: 88px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.admin-reflection-entry-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.admin-reflection-entry-actions button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-reflection-entry-actions button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.admin-reflection-entry-actions .admin-reflection-delete {
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.admin-reflection-empty {
+  padding: 36px 18px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+  color: #64748b;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .admin-reflection-overview-heading,
+  .admin-reflection-session > summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-reflection-session-entries {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 10px;
+  }
+}

@@ -1,8 +1,9 @@
 export default function ActivityStatusBar({
   groupName,
+  readOnly = false,
   boardNumber,
   status,
-  previousNextAction,
+  previousNextActions = [],
   currentNextAction,
   isAdmin,
   submitting,
@@ -13,25 +14,29 @@ export default function ActivityStatusBar({
 }) {
   const isSubmitted = status === "submitted";
   const isCompleted = status === "completed";
-
-  const statusLabel = isCompleted
-    ? "活動終了・閲覧専用"
-    : isSubmitted
-      ? "先生の最終確認待ち"
-      : "活動中";
+  const isClosing = status === "closing";
+  const actionsToShow = Array.isArray(previousNextActions) ? previousNextActions : [];
 
   return (
     <section className={`activity-status-bar ${status}`}>
       <div className="activity-status-main">
         <div className="activity-status-title-row">
           <strong>{groupName}・第{boardNumber}回</strong>
-          <span>{statusLabel}</span>
+          <span>{isCompleted ? "活動終了・閲覧専用" : isClosing ? "活動の終了処理中" : isSubmitted ? "先生の最終確認待ち" : "活動中"}</span>
         </div>
 
-        {previousNextAction && (
-          <p className="previous-next-action">
-            <b>前回決めたこと：</b>{previousNextAction}
-          </p>
+        {actionsToShow.length > 0 && (
+          <div className="previous-next-actions" aria-label="前回決めたこと">
+            <b>前回決めたこと：</b>
+            <ul>
+              {actionsToShow.map((action, index) => (
+                <li key={action.userId || `${action.text}-${index}`}>
+                  {action.userName && <strong>{action.userName}：</strong>}
+                  {action.text}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {currentNextAction && (
@@ -42,39 +47,25 @@ export default function ActivityStatusBar({
       </div>
 
       <div className="activity-status-actions">
-        {!isCompleted && (
-          <button type="button" onClick={onOpenNextAction}>
-            {currentNextAction ? "次回することを編集" : "次回することを決める"}
-          </button>
-        )}
+        {!readOnly && !isCompleted && !isSubmitted && !isClosing && <button type="button" onClick={onOpenNextAction}>
+          {currentNextAction ? "次回することを編集" : "次回することを決める"}
+        </button>}
 
         {!isAdmin && status === "active" && (
-          <button
-            type="button"
-            className="submit-activity-button"
-            disabled={submitting}
-            onClick={onSubmitActivity}
-          >
+          <button type="button" className="submit-activity-button" disabled={submitting || !onSubmitActivity} onClick={onSubmitActivity}>
             {submitting ? "提出中…" : "活動を終了して先生に提出"}
           </button>
         )}
-
-        {!isAdmin && isSubmitted && (
-          <button type="button" disabled>先生の確認待ち</button>
-        )}
-
-        {isAdmin && status === "active" && (
-          <span className="teacher-waiting-label">生徒の終了待ち</span>
-        )}
-
-        {isAdmin && isSubmitted && (
+        {!isAdmin && isSubmitted && <button type="button" disabled>先生の確認待ち</button>}
+        {isAdmin && status === "active" && <span className="teacher-waiting-label">生徒の終了待ち</span>}
+        {isAdmin && (isSubmitted || isClosing) && (
           <button
             type="button"
             className="end-activity-button"
-            disabled={ending}
+            disabled={ending || !onFinalizeActivity}
             onClick={onFinalizeActivity}
           >
-            {ending ? "終了処理中…" : "最終確認して活動を終了"}
+            {ending ? "終了処理中…" : isClosing ? "終了処理を再試行" : "最終確認して活動を終了"}
           </button>
         )}
       </div>

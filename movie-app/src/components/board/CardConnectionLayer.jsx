@@ -126,7 +126,7 @@ const clipBetweenCards = (points, from, to) => {
   return removeDuplicatePoints(visible);
 };
 
-const getCurrentPoints = (connection, cards) => {
+export const getCurrentPoints = (connection, cards) => {
   if (!cards?.[connection.from] || !cards?.[connection.to]) return [];
   const from = getCardRect(cards[connection.from]);
   const to = getCardRect(cards[connection.to]);
@@ -172,7 +172,7 @@ const getCurrentPoints = (connection, cards) => {
   return visible.length >= 2 ? visible : straight();
 };
 
-const getArrowHeadPoints = (points) => {
+export const getArrowHeadPoints = (points) => {
   const tip = points.at(-1);
   let previous = points[0];
   let totalLength = 0;
@@ -194,7 +194,7 @@ const getArrowHeadPoints = (points) => {
   ];
 };
 
-const getArrowPath = (points) => {
+export const getArrowPath = (points) => {
   if (points.length < 2) return "";
   const line = `M ${points.map((point) => `${point.x} ${point.y}`).join(" L ")}`;
   return `${line} M ${getArrowHeadPoints(points).map((point) => `${point.x} ${point.y}`).join(" L ")}`;

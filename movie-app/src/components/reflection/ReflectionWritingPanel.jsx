@@ -1,5 +1,7 @@
 export default function ReflectionWritingPanel({
   reflectionText,
+  readOnly = false,
+  allowDelete = true,
   onReflectionTextChange,
   reflectionRecord,
   reflectionSubmitting,
@@ -18,6 +20,7 @@ export default function ReflectionWritingPanel({
       <label htmlFor="reflection-textarea">振り返り</label>
       <textarea
         id="reflection-textarea"
+        readOnly={readOnly}
         value={reflectionText}
         onChange={(event) => onReflectionTextChange(event.target.value)}
         placeholder="活動で気付いたこと、考えが変わった場面、次に改善したいこと"
@@ -32,7 +35,7 @@ export default function ReflectionWritingPanel({
               type="button"
               className="reflection-delete-button"
               onClick={onDelete}
-              disabled={reflectionSubmitting}
+              disabled={readOnly || !allowDelete || reflectionSubmitting}
             >
               削除
             </button>
@@ -41,13 +44,13 @@ export default function ReflectionWritingPanel({
             type="button"
             className="reflection-submit-button"
             onClick={onSubmit}
-            disabled={reflectionSubmitting || !reflectionText.trim()}
+            disabled={readOnly || reflectionSubmitting || !reflectionText.trim()}
           >
             {reflectionSubmitting
               ? "保存中…"
               : hasSavedReflection
-                ? "更新して保存"
-                : "保存"}
+                ? "提出内容を更新"
+                : "先生に提出"}
           </button>
         </div>
       </div>

@@ -11,7 +11,6 @@ import {
   remove,
   onDisconnect,
   serverTimestamp,
-  runTransaction
 } from "firebase/database";
 
 import RealtimeDrawingCanvas from "./components/RealtimeDrawingCanvas";
@@ -22,17 +21,19 @@ import BoardHeader from "./components/BoardHeader";
 import GroupSelectionPage from "./components/GroupSelectionPage";
 import ActivityStatusBar from "./components/ActivityStatusBar";
 import NextActionDialog from "./components/NextActionDialog";
-import { db } from "./firebase/firebase";
+import { db, auth } from "./firebase/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { loginWithSchoolCode, logoutSchool, callSchool } from "./services/schoolService";
+import { parseSchoolCsv } from "./utils/schoolCsv";
+import ArchivedBoardsPage from "./components/ArchivedBoardsPage";
 import {
   DRAWING_COLOR,
   DRAWING_WIDTH_PX,
   DRAWING_FLUSH_INTERVAL_MS,
-  REFLECTION_PROMPT,
-  CARD_TYPE_LABELS
+  REFLECTION_PROMPT
 } from "./constants/appConstants";
 import { clamp } from "./utils/commonUtils";
 import {
-  getTimestampValue,
   formatTimestamp,
   formatTimeOnly,
   formatDuration
@@ -43,7 +44,6 @@ import {
   getCardDisplayName,
   createCardLabelMap,
   getActivityChangeDetail,
-  getActivityTechnicalDetail,
   getActivityDescription,
   getKeypointMeta
 } from "./utils/activityUtils";
@@ -54,9 +54,29 @@ import AdminFeedbackFeature from "./components/feedback/AdminFeedbackFeature";
 import ReflectionDialog from "./components/reflection/ReflectionDialog";
 import BoardDrawingCanvas from "./components/board/BoardDrawingCanvas";
 import CardConnectionLayer from "./components/board/CardConnectionLayer";
+import ImageCropDialog from "./components/board/ImageCropDialog";
 import CardMenu from "./components/board/CardMenu";
 import MemberPanel from "./components/board/MemberPanel";
 import StickyNoteList from "./components/board/StickyNoteList";
+
+const getImageDimensions = (file) => new Promise((resolve, reject) => {
+  const image = new Image();
+  const objectUrl = URL.createObjectURL(file);
+  image.onload = () => {
+    URL.revokeObjectURL(objectUrl);
+    resolve({ width: image.naturalWidth, height: image.naturalHeight });
+  };
+  image.onerror = () => {
+    URL.revokeObjectURL(objectUrl);
+    reject(new Error("画像のサイズを読み取れませんでした。"));
+  };
+  image.src = objectUrl;
+});
+
+const fitImageSize = (width, height, maxWidth = 420, maxHeight = 420) => {
+  const scale = Math.min(maxWidth / width, maxHeight / height, 1);
+  return { width: Math.round(width * scale), height: Math.round(height * scale) };
+};
 
 export default function App() {
   const boardRef = useRef(null);
@@ -75,22 +95,29 @@ export default function App() {
   const focusedCardTimerRef = useRef(null);
 
   const [zoom, setZoom] = useState(1);
-  const [loginName, setLoginName] = useState("");
+  const [loginId, setLoginId] = useState("");
+  const [loginCode, setLoginCode] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [authReady, setAuthReady] = useState(false);
+  const [viewingArchive, setViewingArchive] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
 
   const [users, setUsers] = useState({});
-  const [boardInput, setBoardInput] = useState("");
   const [boardId, setBoardId] = useState("");
   const [groups, setGroups] = useState({});
-  const [groupId, setGroupId] = useState("");
   const [groupName, setGroupName] = useState("");
   const [boardMeta, setBoardMeta] = useState(null);
+  const [allBoardsLoading, setAllBoardsLoading] = useState(false);
+  const [allBoardsError, setAllBoardsError] = useState("");
   const [groupOpening, setGroupOpening] = useState(false);
   const [endingActivity, setEndingActivity] = useState(false);
+  const [submittingActivity, setSubmittingActivity] = useState(false);
 
   const [cards, setCards] = useState({});
   const [mediaItems, setMediaItems] = useState({});
+  const [imageCropTarget, setImageCropTarget] = useState(null);
   const [members, setMembers] = useState({});
   const [connections, setConnections] = useState({});
   const [allBoards, setAllBoards] = useState({});
@@ -109,7 +136,6 @@ export default function App() {
   const [playbackPosition, setPlaybackPosition] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState(300);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
 
   // 活動全体を振り返るための時系列の目印と自由記述
   const [activityEvents, setActivityEvents] = useState([]);
@@ -133,33 +159,79 @@ export default function App() {
   const [focusedCardId, setFocusedCardId] = useState(null);
 
   useEffect(() => {
-    return onValue(ref(db, "users"), (snapshot) => {
-      setUsers(snapshot.val() || {});
+    let stopProfile = () => {};
+    const stopAuth = onAuthStateChanged(auth, (authenticatedUser) => {
+      stopProfile();
+      setCurrentUser(null);
+      setCurrentUserId(null);
+      setUsers({});
+      setAllBoards({});
+      setGroups({});
+      resetBoardStates();
+      setScreen("board");
+      if (!authenticatedUser) {
+        setAuthReady(true);
+        return;
+      }
+      setAuthReady(false);
+      stopProfile = onValue(ref(db, `users/${authenticatedUser.uid}`), (snapshot) => {
+        if (auth.currentUser?.uid !== authenticatedUser.uid) return;
+        const profile = snapshot.val();
+        if (!profile || profile.disabled) {
+          setLoginError("このユーザーは利用できません。管理者に確認してください。");
+          void logoutSchool();
+          return;
+        }
+        setCurrentUserId(authenticatedUser.uid);
+        setCurrentUser(profile);
+        setAuthReady(true);
+      }, () => {
+        setLoginError("ログインの有効期限が切れました。再度ログインしてください。");
+        void logoutSchool();
+      });
     });
+    return () => { stopAuth(); stopProfile(); };
   }, []);
 
   useEffect(() => {
-    if (!currentUser || currentUser.role !== "admin") return;
+    if (currentUser?.role !== "admin") return;
+    return onValue(ref(db, "users"), snapshot => setUsers(snapshot.val() || {}));
+  }, [currentUser?.role]);
 
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== "admin") {
+      setAllBoardsLoading(false);
+      return undefined;
+    }
+
+    setAllBoardsLoading(true);
+    setAllBoardsError("");
     return onValue(ref(db, "boards"), (snapshot) => {
       setAllBoards(snapshot.val() || {});
+      setAllBoardsLoading(false);
+      setAllBoardsError("");
+    }, (error) => {
+      console.error("管理者用のボード一覧を読み込めませんでした", error);
+      setAllBoardsError(error.message || "ボードの振り返りを読み込めませんでした。");
+      setAllBoardsLoading(false);
     });
   }, [currentUser]);
 
   useEffect(() => {
+    if (!currentUserId) return;
     return onValue(ref(db, "groups"), (snapshot) => {
       setGroups(snapshot.val() || {});
     });
-  }, []);
+  }, [currentUserId]);
 
   useEffect(() => {
-    if (!boardId) {
-      setBoardMeta(null);
-      return undefined;
-    }
+    if (!boardId) return undefined;
 
     return onValue(ref(db, `boards/${boardId}/meta`), (snapshot) => {
       setBoardMeta(snapshot.val() || null);
+    }, () => {
+      resetBoardStates();
+      if (auth.currentUser) alert("このボードを閲覧する権限がありません。編集者と管理者のみ閲覧できます。");
     });
   }, [boardId]);
 
@@ -170,9 +242,11 @@ export default function App() {
       setCards(snapshot.val() || {});
     });
 
-    const unsubMembers = onValue(ref(db, `boards/${boardId}/members`), (snapshot) => {
-      setMembers(snapshot.val() || {});
-    });
+    const unsubMembers = currentUser?.role === "admin"
+      ? onValue(ref(db, `boards/${boardId}/members`), (snapshot) => {
+        setMembers(snapshot.val() || {});
+      })
+      : () => {};
 
     const unsubConnections = onValue(ref(db, `boards/${boardId}/connections`), (snapshot) => {
       setConnections(snapshot.val() || {});
@@ -222,10 +296,10 @@ export default function App() {
       unsubActivities();
       unsubReflection();
     };
-  }, [boardId, currentUserId, reflectionOpen, nextActionOpen]);
+  }, [boardId, currentUserId, currentUser?.role, reflectionOpen, nextActionOpen]);
 
   useEffect(() => {
-    if (!boardId || !currentUserId || !currentUser) return undefined;
+    if (!boardId || !currentUserId || !currentUser || viewingArchive || ["submitted", "completed", "closing"].includes(boardMeta?.status)) return undefined;
 
     const memberRef = ref(db, `boards/${boardId}/members/${currentUserId}`);
 
@@ -255,7 +329,7 @@ export default function App() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [boardId, currentUserId, currentUser]);
+  }, [boardId, currentUserId, currentUser, viewingArchive, boardMeta?.status]);
 
   const selectableGroups = useMemo(() => {
     const nextGroups = { ...groups };
@@ -281,12 +355,29 @@ export default function App() {
     return nextGroups;
   }, [groups, allBoards, currentUser]);
 
-  const boardIsCompleted = boardMeta?.status === "completed";
+  const boardIsCompleted = viewingArchive || ["submitted", "completed", "closing"].includes(boardMeta?.status);
   const currentBoardNumber = Number(boardMeta?.number) || 1;
-  const previousNextAction =
-    boardMeta?.previousNextActions?.[currentUserId] ||
-    boardMeta?.previousNextAction ||
-    "";
+  const previousNextActions = (() => {
+    const savedEntries = Array.isArray(boardMeta?.previousNextActionEntries)
+      ? boardMeta.previousNextActionEntries
+      : Object.entries(boardMeta?.previousNextActions || {}).map(([userId, value]) => ({
+        userId,
+        userName: typeof value === "object" ? value?.userName || "" : "",
+        text: typeof value === "string" ? value : value?.text || ""
+      }));
+    const entries = savedEntries
+      .map((entry) => ({
+        userId: entry?.userId || "",
+        userName: entry?.userName || "",
+        text: String(entry?.text || "").trim()
+      }))
+      .filter((entry) => entry.text);
+
+    if (entries.length) return entries;
+    return boardMeta?.previousNextAction
+      ? [{ userId: "", userName: "", text: String(boardMeta.previousNextAction) }]
+      : [];
+  })();
   const currentNextAction = reflectionRecord?.nextAction || "";
 
   const runIfBoardEditable = (callback) => (...args) => {
@@ -394,27 +485,6 @@ export default function App() {
     return createCardLabelMap(reflectionActivityEvents);
   }, [reflectionActivityEvents]);
 
-  const activeReflectionKeypoint = useMemo(() => {
-    if (!reflectionPlaybackTimestamp || reflectionKeypoints.length === 0) return null;
-
-    let active = null;
-    for (const keypoint of reflectionKeypoints) {
-      if (keypoint.timestamp <= reflectionPlaybackTimestamp) {
-        active = keypoint;
-      } else {
-        break;
-      }
-    }
-    return active;
-  }, [reflectionPlaybackTimestamp, reflectionKeypoints]);
-
-  const selectedReflectionKeypoint = useMemo(() => {
-    if (!selectedReflectionKeypointId) return null;
-    return reflectionKeypoints.find((event) => event.id === selectedReflectionKeypointId) || null;
-  }, [selectedReflectionKeypointId, reflectionKeypoints]);
-
-  const displayedReflectionKeypoint = selectedReflectionKeypoint || activeReflectionKeypoint;
-
   useEffect(() => {
     if (!reflectionIsPlaying || historyEvents.length === 0 || reflectionPlaybackDuration <= 0) {
       return undefined;
@@ -520,38 +590,9 @@ export default function App() {
     });
   };
 
-  const openTimelapse = async () => {
-    setHistoryLoading(true);
-    setIsPlaying(false);
-    setPlaybackPosition(0);
-
-    try {
-      const snapshot = await get(ref(db, `boards/${boardId}/history`));
-      const events = [];
-      snapshot.forEach((child) => {
-        const value = child.val();
-        if (value && typeof value.timestamp === "number") {
-          events.push({ id: child.key, ...value });
-        }
-      });
-      events.sort((a, b) => {
-        const diff = (a.timestamp || 0) - (b.timestamp || 0);
-        return diff !== 0 ? diff : a.id.localeCompare(b.id);
-      });
-      setHistoryEvents(events);
-      setTimelapseOpen(true);
-    } catch (error) {
-      console.error("タイムラプス履歴を取得できませんでした", error);
-      alert("タイムラプス履歴を取得できませんでした");
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  const resetBoardStates = () => {
+  function resetBoardStates() {
     setBoardId("");
-    setBoardInput("");
-    setGroupId("");
+    setViewingArchive(false);
     setGroupName("");
     setBoardMeta(null);
     setCards({});
@@ -559,6 +600,10 @@ export default function App() {
     setMembers({});
     setConnections({});
     setActivityEvents([]);
+    setHistoryEvents([]);
+    setPlaybackPosition(0);
+    setIsPlaying(false);
+    setTimelapseOpen(false);
     setReflectionActivityEvents([]);
     setReflectionOpen(false);
     setReflectionText("");
@@ -567,6 +612,7 @@ export default function App() {
     setNextActionText("");
     setReflectionPlaybackPosition(0);
     setReflectionIsPlaying(false);
+    setSelectedReflectionKeypointId(null);
     reflectionStartedAtRef.current = null;
     reflectionAccumulatedDurationRef.current = 0;
     setMovingCard(null);
@@ -585,7 +631,7 @@ export default function App() {
       focusedCardTimerRef.current = null;
     }
     drawingRef.current = { isDrawing: false };
-  };
+  }
 
   const zoomIn = () => setZoom((z) => Math.min(2, Number((z + 0.1).toFixed(1))));
   const zoomOut = () => setZoom((z) => Math.max(0.5, Number((z - 0.1).toFixed(1))));
@@ -618,30 +664,30 @@ export default function App() {
     };
   };
 
-  const login = () => {
-    const name = loginName.trim();
-    if (!name) return;
-
-    const found = Object.entries(users).find(([, user]) => user.name === name);
-
-    if (!found) {
-      alert("登録されていないユーザーです");
-      return;
+  const login = async () => {
+    if (loginBusy) return;
+    setLoginBusy(true);
+    setLoginError("");
+    try {
+      await loginWithSchoolCode(loginId.trim(), loginCode);
+      setLoginCode("");
+    } catch (error) {
+      setLoginError(error.message || "ログインできませんでした。");
+    } finally {
+      setLoginBusy(false);
     }
-
-    setCurrentUserId(found[0]);
-    setCurrentUser(found[1]);
   };
 
-  const logout = () => {
-    if (boardId && currentUserId) {
-      remove(ref(db, `boards/${boardId}/members/${currentUserId}`));
+  const logout = async () => {
+    if (boardId && currentUserId && !boardIsCompleted) {
+      await remove(ref(db, `boards/${boardId}/members/${currentUserId}`)).catch(console.error);
     }
-
+    await logoutSchool();
     resetBoardStates();
     setCurrentUserId(null);
     setCurrentUser(null);
-    setLoginName("");
+    setLoginId("");
+    setLoginCode("");
     setScreen("board");
   };
 
@@ -677,7 +723,6 @@ export default function App() {
 
   const enterSelectedBoard = async ({
     selectedBoardId,
-    selectedGroupId,
     selectedGroupName
   }) => {
     if (!selectedBoardId || !currentUserId || !currentUser) return;
@@ -687,160 +732,75 @@ export default function App() {
       `boards/${selectedBoardId}/members/${currentUserId}`
     );
 
-    onDisconnect(memberRef).update({
-      status: "offline",
-      lastActive: serverTimestamp()
-    });
-
-    await update(ref(db, `boards/${selectedBoardId}`), {
-      [`members/${currentUserId}`]: {
-        name: currentUser.name,
-        role: currentUser.role,
-        color: currentUser.color || "#fff176",
-        status: "online",
-        joinedAt: serverTimestamp(),
-        lastActive: serverTimestamp()
+    const metaRef = ref(db, `boards/${selectedBoardId}/meta`);
+    let meta = (await get(metaRef)).val();
+    if (!meta) throw new Error("ボード情報を読み込めませんでした。");
+    if (meta.status === "active") {
+      try {
+        await update(memberRef, {
+          name: currentUser.name,
+          role: currentUser.role,
+          color: currentUser.color || "#fff176",
+          status: "online",
+          joinedAt: serverTimestamp(),
+          lastActive: serverTimestamp()
+        });
+        await onDisconnect(memberRef).update({
+          status: "offline",
+          lastActive: serverTimestamp()
+        });
+      } catch (error) {
+        // A student may submit while another person is opening the same board.
+        meta = (await get(metaRef)).val();
+        if (!["submitted", "closing", "completed"].includes(meta?.status)) throw error;
       }
-    });
+    }
 
-    setGroupId(selectedGroupId);
     setGroupName(selectedGroupName);
+    setBoardMeta(meta);
     setBoardId(selectedBoardId);
   };
 
-  const selectGroup = async (selectedGroupId, selectedGroup) => {
-    if (!selectedGroupId || !currentUserId || !currentUser) return;
-
+  const selectGroup = async (selectedGroupId) => {
+    if (!currentUserId || groupOpening) return;
     setGroupOpening(true);
-
     try {
-      const selectedGroupName =
-        selectedGroup?.name || selectedGroupId;
-      const candidateBoardId =
-        selectedGroup?.legacyBoardId || push(ref(db, "boards")).key;
-
-      if (!candidateBoardId) {
-        throw new Error("新しいボードIDを作成できませんでした");
-      }
-
-      const controlRef = ref(
-        db,
-        `groups/${selectedGroupId}/boardControl`
-      );
-
-      const transactionResult = await runTransaction(
-        controlRef,
-        (currentValue) => {
-          const control = currentValue || {};
-
-          if (control.currentBoardId) {
-            return control;
-          }
-
-          if (control.nextBoardId) {
-            return {
-              ...control,
-              currentBoardId: control.nextBoardId,
-              currentBoardNumber:
-                Number(control.nextBoardNumber) ||
-                Number(control.boardCount) ||
-                1,
-              nextBoardId: null,
-              nextBoardNumber: null,
-              lastActivatedAtClient: Date.now()
-            };
-          }
-
-          const nextNumber = Math.max(
-            1,
-            (Number(control.boardCount) || 0) + 1
-          );
-
-          return {
-            ...control,
-            currentBoardId: candidateBoardId,
-            currentBoardNumber: nextNumber,
-            boardCount: nextNumber,
-            lastActivatedAtClient: Date.now()
-          };
-        }
-      );
-
-      if (!transactionResult.committed) {
-        throw new Error("活動ボードを確定できませんでした");
-      }
-
-      const control = transactionResult.snapshot.val() || {};
-      const activeBoardId = control.currentBoardId;
-      const activeBoardNumber =
-        Number(control.currentBoardNumber) ||
-        Number(control.boardCount) ||
-        1;
-
-      if (!activeBoardId) {
-        throw new Error("開く活動ボードが見つかりませんでした");
-      }
-
-      const metaRef = ref(db, `boards/${activeBoardId}/meta`);
-      const metaSnapshot = await get(metaRef);
-
-      if (!metaSnapshot.exists()) {
-        await update(ref(db), {
-          [`groups/${selectedGroupId}/name`]: selectedGroupName,
-          [`groups/${selectedGroupId}/updatedAt`]: serverTimestamp(),
-          [`boards/${activeBoardId}/meta`]: {
-            groupId: selectedGroupId,
-            groupName: selectedGroupName,
-            number: activeBoardNumber,
-            title: `第${activeBoardNumber}回の活動`,
-            status: "active",
-            previousBoardId: control.lastCompletedBoardId || null,
-            createdAt: serverTimestamp(),
-            startedAt: serverTimestamp()
-          }
-        });
-      } else {
-        const meta = metaSnapshot.val() || {};
-        if (meta.status === "completed") {
-          throw new Error(
-            "終了済みボードが活動中として設定されています。管理者に確認してください"
-          );
-        }
-
-        await update(metaRef, {
-          groupId: selectedGroupId,
-          groupName: selectedGroupName,
-          number: Number(meta.number) || activeBoardNumber,
-          status: "active",
-          startedAt: meta.startedAt || serverTimestamp()
-        });
-      }
-
-      await enterSelectedBoard({
-        selectedBoardId: activeBoardId,
-        selectedGroupId,
-        selectedGroupName
-      });
+      const result = await callSchool("selectSchoolGroup", { groupId: selectedGroupId });
+      resetBoardStates();
+      await enterSelectedBoard({ selectedBoardId: result.boardId,
+        selectedGroupName: result.groupName });
     } catch (error) {
-      console.error("グループを開けませんでした", error);
-      alert(
-        error instanceof Error
-          ? error.message
-          : "グループを開けませんでした"
-      );
-    } finally {
-      setGroupOpening(false);
-    }
+      alert(error.message || "グループを開けませんでした。");
+    } finally { setGroupOpening(false); }
+  };
+
+  const openArchivedBoard = async (selectedBoardId) => {
+    if (groupOpening) return;
+    setGroupOpening(true);
+    try {
+      const result = await callSchool("openArchivedBoard", { boardId: selectedBoardId });
+      resetBoardStates();
+      setViewingArchive(true);
+      setGroupName(result.groupName);
+      setBoardMeta({ status: "completed", number: result.number });
+      setBoardId(result.id);
+      setScreen("board");
+    } catch (error) {
+      alert(error.message || "このボードを開けませんでした。");
+    } finally { setGroupOpening(false); }
   };
 
   const leaveBoard = () => {
-    if (boardId && currentUserId) {
-      remove(ref(db, `boards/${boardId}/members/${currentUserId}`));
+    if (boardId && currentUserId && !boardIsCompleted) {
+      void remove(ref(db, `boards/${boardId}/members/${currentUserId}`)).catch(console.error);
     }
+    const wasArchive = viewingArchive;
     resetBoardStates();
+    if (wasArchive) setScreen("archives");
   };
 
   const saveNextAction = async () => {
+    if (boardIsCompleted) return;
     const nextAction = nextActionText.trim();
     if (!nextAction) {
       alert("次回することを入力してください");
@@ -869,141 +829,38 @@ export default function App() {
     }
   };
 
-  const endCurrentActivity = async () => {
-    if (
-      currentUser?.role !== "admin" ||
-      !groupId ||
-      !boardId ||
-      boardIsCompleted
-    ) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      "この活動を終了しますか？\n現在のボードは閲覧専用になり、次回用の空のボードが自動生成されます。"
-    );
-    if (!confirmed) return;
-
-    setEndingActivity(true);
-
+  const submitCurrentActivity = async () => {
+    if (currentUser?.role !== "student" || !boardId || viewingArchive || boardMeta?.status !== "active" || submittingActivity) return;
+    if (!window.confirm("グループの活動を終了して先生に提出しますか？提出後はボードを編集できません。")) return;
+    setSubmittingActivity(true);
     try {
-      const reflectionSnapshot = await get(
-        ref(db, `boards/${boardId}/reflections`)
-      );
-      const previousNextActions = {};
-      reflectionSnapshot.forEach((child) => {
-        const value = child.val() || {};
-        const nextAction = String(value.nextAction || "").trim();
-        if (nextAction) {
-          previousNextActions[child.key] = nextAction;
-        }
-      });
-
-      const candidateNextBoardId = push(ref(db, "boards")).key;
-      if (!candidateNextBoardId) {
-        throw new Error("次回用ボードを生成できませんでした");
-      }
-
-      const controlRef = ref(db, `groups/${groupId}/boardControl`);
-      const transactionResult = await runTransaction(
-        controlRef,
-        (currentValue) => {
-          const control = currentValue || {};
-
-          if (
-            control.currentBoardId !== boardId &&
-            control.lastCompletedBoardId !== boardId
-          ) {
-            return;
-          }
-
-          if (control.nextBoardId) {
-            return {
-              ...control,
-              currentBoardId: null,
-              currentBoardNumber: null,
-              lastCompletedBoardId: boardId,
-              lastCompletedAtClient: Date.now()
-            };
-          }
-
-          const currentNumber = Math.max(
-            Number(control.currentBoardNumber) || 0,
-            Number(boardMeta?.number) || 0,
-            Number(control.boardCount) || 0,
-            1
-          );
-          const nextNumber = currentNumber + 1;
-
-          return {
-            ...control,
-            currentBoardId: null,
-            currentBoardNumber: null,
-            nextBoardId: candidateNextBoardId,
-            nextBoardNumber: nextNumber,
-            boardCount: Math.max(
-              Number(control.boardCount) || 0,
-              nextNumber
-            ),
-            lastCompletedBoardId: boardId,
-            lastCompletedAtClient: Date.now()
-          };
-        }
-      );
-
-      if (!transactionResult.committed) {
-        throw new Error(
-          "この活動はすでに終了しているか、現在のボードではありません"
-        );
-      }
-
-      const control = transactionResult.snapshot.val() || {};
-      const nextBoardId = control.nextBoardId;
-      const nextBoardNumber =
-        Number(control.nextBoardNumber) ||
-        Number(control.boardCount) ||
-        currentBoardNumber + 1;
-
-      if (!nextBoardId) {
-        throw new Error("次回用ボードを確認できませんでした");
-      }
-
-      const nextMetaRef = ref(db, `boards/${nextBoardId}/meta`);
-      const nextMetaSnapshot = await get(nextMetaRef);
-      const rootUpdates = {
-        [`boards/${boardId}/meta/status`]: "completed",
-        [`boards/${boardId}/meta/endedAt`]: serverTimestamp(),
-        [`groups/${groupId}/updatedAt`]: serverTimestamp()
-      };
-
-      if (!nextMetaSnapshot.exists()) {
-        rootUpdates[`boards/${nextBoardId}/meta`] = {
-          groupId,
-          groupName,
-          number: nextBoardNumber,
-          title: `第${nextBoardNumber}回の活動`,
-          status: "draft",
-          previousBoardId: boardId,
-          previousNextActions,
-          createdAt: serverTimestamp()
-        };
-      }
-
-      await update(ref(db), rootUpdates);
+      await callSchool("submitSchoolBoard", { boardId });
+      setBoardMeta((meta) => ({ ...meta, status: meta?.status === "active" ? "submitted" : meta?.status || "submitted" }));
       setBoardTool("move");
-      alert(
-        `第${currentBoardNumber}回の活動を終了しました。\n第${nextBoardNumber}回のボードを準備しました。`
-      );
+      setImageCropTarget(null);
+      setCardMenuId(null);
+      alert("先生に提出しました。先生の最終確認をお待ちください。");
+    } catch (error) {
+      console.error("活動を先生に提出できませんでした", error);
+      alert(error.code === "functions/not-found"
+        ? "提出処理がサーバーにありません。修正版のCloud Functionsをデプロイしてください。"
+        : `${error.message || "先生に提出できませんでした。"}${error.code ? `（${error.code}）` : ""}`);
+    } finally { setSubmittingActivity(false); }
+  };
+
+  const finalizeCurrentActivity = async () => {
+    if (currentUser?.role !== "admin" || !boardId || viewingArchive || !["submitted", "closing"].includes(boardMeta?.status) || endingActivity) return;
+    if (!window.confirm("提出されたボードを最終確認し、活動を終了しますか？次回のボードを準備します。")) return;
+    setEndingActivity(true);
+    try {
+      const result = await callSchool("finishSchoolBoard", { boardId });
+      setBoardTool("move");
+      alert(`活動を終了しました。第${result.nextBoardNumber}回のボードを準備しました。`);
     } catch (error) {
       console.error("活動を終了できませんでした", error);
-      alert(
-        error instanceof Error
-          ? error.message
-          : "活動を終了できませんでした"
-      );
-    } finally {
-      setEndingActivity(false);
+      alert(`${error.message || "活動を終了できませんでした。"}${error.code ? `（${error.code}）` : ""}`);
     }
+    finally { setEndingActivity(false); }
   };
 
   const addCard = async () => {
@@ -1056,23 +913,31 @@ export default function App() {
       }
     });
   };
-const handleUpload = async (event) => {
-  const file = event.target.files?.[0];
-  if (!file) return;
-
+const uploadSelectedMedia = async (file, { showSuccess = true } = {}) => {
   try {
+    let imageDimensions = null;
+    if (file.type.startsWith("image/")) {
+      try {
+        imageDimensions = await getImageDimensions(file);
+      } catch (dimensionError) {
+        // Metadata is only used to size the frame. It must not prevent the file upload.
+        console.warn("画像サイズを取得できないため、既定サイズで追加します。", dimensionError);
+      }
+    }
     const result = await uploadMedia({ boardId, file });
     const mediaRef = push(ref(db, `boards/${boardId}/media`));
     const historyRef = push(ref(db, `boards/${boardId}/history`));
     const activityRef = push(ref(db, `boards/${boardId}/activityEvents`));
     const timestamp = serverTimestamp();
+    const imageSize = imageDimensions ? fitImageSize(imageDimensions.width, imageDimensions.height) : null;
     const mediaData = {
       type: result.type,
       url: result.url,
       storagePath: result.storagePath,
       fileName: result.fileName,
-      width: result.type === "image" ? 420 : 500,
-      height: result.type === "image" ? 300 : 320,
+      width: imageSize?.width || 500,
+      height: imageSize?.height || 320,
+      ...(imageDimensions ? { imageAspectRatio: imageDimensions.width / imageDimensions.height } : {}),
       x: 150,
       y: 150,
       owner: currentUserId,
@@ -1102,12 +967,77 @@ const handleUpload = async (event) => {
       }
     });
 
-    alert("アップロードしました");
+    if (showSuccess) {
+      alert("アップロードしました。");
+    }
+    return { mediaId: mediaRef.key, media: { id: mediaRef.key, ...mediaData } };
   } catch (error) {
     console.error(error);
     alert(error instanceof Error ? error.message : "アップロードに失敗しました");
-  } finally {
-    event.target.value = "";
+    return null;
+  }
+};
+
+const handleUpload = async (event) => {
+  const input = event.target;
+  const file = input.files?.[0];
+  if (!file) return;
+  input.value = "";
+
+  setBoardTool("move");
+  await uploadSelectedMedia(file);
+};
+
+const openImageCrop = (mediaId, media) => {
+  if (boardIsCompleted || boardTool !== "crop" || media.type !== "image") return;
+  setImageCropTarget({ mediaId, media });
+  setBoardTool("move");
+};
+
+const saveImageCrop = async (crop) => {
+  if (!imageCropTarget || boardIsCompleted) return;
+  const { mediaId, media } = imageCropTarget;
+  const beforeMedia = { id: mediaId, ...media };
+  const imageSize = fitImageSize(crop.width, crop.height);
+  const nextCrop = {
+    x: crop.x,
+    y: crop.y,
+    width: crop.width,
+    height: crop.height,
+    naturalWidth: crop.naturalWidth,
+    naturalHeight: crop.naturalHeight
+  };
+  const nextMedia = {
+    ...media,
+    crop: nextCrop,
+    width: imageSize.width,
+    height: imageSize.height,
+    imageAspectRatio: crop.width / crop.height
+  };
+  try {
+    const historyRef = push(ref(db, `boards/${boardId}/history`));
+    const activityRef = push(ref(db, `boards/${boardId}/activityEvents`));
+    const timestamp = serverTimestamp();
+    const eventData = {
+      type: "media_cropped",
+      userId: currentUserId,
+      userName: currentUser.name,
+      payload: { mediaId, beforeMedia, media: { id: mediaId, ...nextMedia } },
+      timestamp
+    };
+    await update(ref(db, `boards/${boardId}`), {
+      [`media/${mediaId}/crop`]: nextCrop,
+      [`media/${mediaId}/width`]: nextMedia.width,
+      [`media/${mediaId}/height`]: nextMedia.height,
+      [`media/${mediaId}/imageAspectRatio`]: nextMedia.imageAspectRatio,
+      [`media/${mediaId}/updatedAt`]: timestamp,
+      [`history/${historyRef.key}`]: eventData,
+      [`activityEvents/${activityRef.key}`]: eventData
+    });
+    setImageCropTarget(null);
+  } catch (error) {
+    console.error(error);
+    throw new Error(error instanceof Error ? error.message : "切り抜き範囲を保存できませんでした。", { cause: error });
   }
 };
   const updateCard = (id, data) => {
@@ -1297,10 +1227,39 @@ const handleUpload = async (event) => {
   };
 
   const updateMediaItem = (mediaId, data) => {
-    update(ref(db, `boards/${boardId}/media/${mediaId}`), {
+    return update(ref(db, `boards/${boardId}/media/${mediaId}`), {
       ...data,
       updatedAt: serverTimestamp()
     });
+  };
+
+  const handleBoardImageLoad = (event, mediaId, media) => {
+    const image = event.currentTarget;
+    if (!image.naturalWidth || !image.naturalHeight) return;
+    if (media.crop) return;
+    const ratio = image.naturalWidth / image.naturalHeight;
+    // Fit the frame to the actual decoded image, including media saved with stale dimensions.
+    const fittedSize = fitImageSize(
+      image.naturalWidth,
+      image.naturalHeight,
+      Number(media.width) || 420,
+      Number(media.height) || 300
+    );
+    // Archived boards are read-only, but still display old images without letterboxing.
+    const frame = image.parentElement;
+    if (frame) {
+      frame.style.width = `${fittedSize.width}px`;
+      frame.style.height = `${fittedSize.height}px`;
+    }
+    const storedRatio = Number(media.imageAspectRatio);
+    const needsSave = Math.abs((Number(media.width) || 420) - fittedSize.width) > 1
+      || Math.abs((Number(media.height) || 300) - fittedSize.height) > 1
+      || !Number.isFinite(storedRatio)
+      || Math.abs(storedRatio - ratio) > 0.01;
+    if (!boardIsCompleted && needsSave) {
+      void updateMediaItem(mediaId, { ...fittedSize, imageAspectRatio: ratio })
+        .catch((error) => console.error("画像サイズの保存に失敗しました。", error));
+    }
   };
 
   const handleMediaPointerDown = (e, mediaId, media) => {
@@ -1407,8 +1366,29 @@ const handleUpload = async (event) => {
     if (!resizingMedia) return;
     e.preventDefault();
     e.stopPropagation();
-    const width = Math.max(180, resizingMedia.startWidth + (e.clientX - resizingMedia.startX) / zoom);
-    const height = Math.max(120, resizingMedia.startHeight + (e.clientY - resizingMedia.startY) / zoom);
+    const media = mediaItems[resizingMedia.id] || {};
+    const ratio = media.type === "image"
+      ? Number(media.imageAspectRatio) || resizingMedia.startWidth / resizingMedia.startHeight
+      : null;
+    let width;
+    let height;
+    if (ratio) {
+      const deltaX = (e.clientX - resizingMedia.startX) / zoom;
+      const deltaY = (e.clientY - resizingMedia.startY) / zoom;
+      if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+        width = Math.max(1, resizingMedia.startWidth + deltaX);
+        height = width / ratio;
+      } else {
+        height = Math.max(1, resizingMedia.startHeight + deltaY);
+        width = height * ratio;
+      }
+      const minScale = Math.max(180 / width, 120 / height, 1);
+      width *= minScale;
+      height *= minScale;
+    } else {
+      width = Math.max(180, resizingMedia.startWidth + (e.clientX - resizingMedia.startX) / zoom);
+      height = Math.max(120, resizingMedia.startHeight + (e.clientY - resizingMedia.startY) / zoom);
+    }
     if (mediaResizeRef.current?.mediaId === resizingMedia.id) {
       mediaResizeRef.current.lastWidth = width;
       mediaResizeRef.current.lastHeight = height;
@@ -1470,6 +1450,7 @@ const handleUpload = async (event) => {
   };
 
   const handleVideoPlayed = async (mediaId, media) => {
+    if (boardIsCompleted) return;
     if (media.lastPlayedBy === currentUserId && Date.now() - Number(media.lastPlayedAt || 0) < 30000) return;
     await update(ref(db, `boards/${boardId}/media/${mediaId}`), {
       lastPlayedBy: currentUserId,
@@ -2199,23 +2180,28 @@ const handleUpload = async (event) => {
     setSelectedReflectionKeypointId(null);
     setReflectionPlaybackPosition(0);
 
-    // 振り返り開始時点までの活動の目印を固定して提示する。
-    setReflectionActivityEvents([...activityEvents]);
-
     try {
-      const historySnapshot = await get(ref(db, `boards/${boardId}/history`));
-      const events = [];
-      historySnapshot.forEach((child) => {
-        const value = child.val();
-        if (value && typeof value.timestamp === "number") {
-          events.push({ id: child.key, ...value });
-        }
-      });
-      events.sort((a, b) => {
-        const diff = (a.timestamp || 0) - (b.timestamp || 0);
-        return diff !== 0 ? diff : a.id.localeCompare(b.id);
-      });
-      setHistoryEvents(events);
+      // Board history and activity keypoints are both read from the selected board,
+      // including when it is opened from the archive list.
+      const [historySnapshot, activitySnapshot] = await Promise.all([
+        get(ref(db, `boards/${boardId}/history`)),
+        get(ref(db, `boards/${boardId}/activityEvents`))
+      ]);
+      const readEvents = (snapshot) => {
+        const events = [];
+        snapshot.forEach((child) => {
+          const value = child.val();
+          if (value && typeof value.timestamp === "number") {
+            events.push({ id: child.key, ...value });
+          }
+        });
+        return events.sort((a, b) => {
+          const diff = (a.timestamp || 0) - (b.timestamp || 0);
+          return diff !== 0 ? diff : a.id.localeCompare(b.id);
+        });
+      };
+      setHistoryEvents(readEvents(historySnapshot));
+      setReflectionActivityEvents(readEvents(activitySnapshot));
     } catch (error) {
       console.error("振り返り用タイムラプス履歴を取得できませんでした", error);
     }
@@ -2224,10 +2210,11 @@ const handleUpload = async (event) => {
 
     const usageRef = ref(
       db,
-      `boards/${boardId}/researchUsage/${currentUserId}`
+      `boards/${boardId}/reflectionUsage/${currentUserId}`
     );
     const usageSnapshot = await get(usageRef);
     const usage = usageSnapshot.val() || {};
+    if (boardIsCompleted) return;
 
     await update(usageRef, {
       userId: currentUserId,
@@ -2278,27 +2265,31 @@ const handleUpload = async (event) => {
 
       // update()を使うことで、既存のteacherFeedbackを消さずに
       // 生徒の振り返り部分だけを更新する。
-      await update(
-        ref(db, `boards/${boardId}/reflections/${currentUserId}`),
-        {
-          userId: currentUserId,
-          userName: currentUser.name,
-          promptVersion: "free_description_v1",
-          promptText: REFLECTION_PROMPT,
-          responseText,
-          startedAtClient,
-          submittedAtClient,
-          durationMs,
-          submittedAt: serverTimestamp(),
-          responseLength: responseText.length,
-          activityEventCountShown: reflectionActivityEvents.length,
-          activityEventIdsShown: reflectionActivityEvents.map((event) => event.id),
-          boardStateAtSubmit: {
-            cardCount: Object.keys(cards).length,
-            connectionCount: Object.keys(connections).length
-          }
+      const reflection = {
+        userId: currentUserId,
+        userName: currentUser.name,
+        promptVersion: "free_description_v1",
+        promptText: REFLECTION_PROMPT,
+        responseText,
+        startedAtClient,
+        submittedAtClient,
+        durationMs,
+        submittedAt: serverTimestamp(),
+        responseLength: responseText.length,
+        activityEventCountShown: reflectionActivityEvents.length,
+        activityEventIdsShown: reflectionActivityEvents.map((event) => event.id),
+        boardStateAtSubmit: {
+          cardCount: Object.keys(cards).length,
+          connectionCount: Object.keys(connections).length
         }
+      };
+      const reflectionUpdates = Object.fromEntries(
+        Object.entries(reflection).map(([field, value]) => [
+          `boards/${boardId}/reflections/${currentUserId}/${field}`,
+          value
+        ])
       );
+      await update(ref(db), reflectionUpdates);
 
       setReflectionOpen(false);
       setReflectionActivityEvents([]);
@@ -2309,7 +2300,7 @@ const handleUpload = async (event) => {
       alert("振り返りを保存しました");
     } catch (error) {
       console.error("振り返りを保存できませんでした", error);
-      alert("振り返りを保存できませんでした");
+      alert(error.message || "振り返りを保存できませんでした");
     } finally {
       setReflectionSubmitting(false);
     }
@@ -2317,6 +2308,7 @@ const handleUpload = async (event) => {
 
 
   const deleteCurrentReflection = async () => {
+    if (boardIsCompleted) return;
     if (!boardId || !currentUserId || !reflectionRecord) return;
 
     const confirmed = window.confirm(
@@ -2408,98 +2400,54 @@ const handleUpload = async (event) => {
     URL.revokeObjectURL(url);
   };
 
-  const addUser = () => {
-    set(push(ref(db, "users")), {
-      name: "新規ユーザー",
-      role: "student",
-      color: "#fff176",
-      createdAt: serverTimestamp()
-    });
-  };
-
-  const updateUser = (uid, data) => {
-    update(ref(db, `users/${uid}`), data);
-
-    if (uid === currentUserId) {
-      setCurrentUser({
-        ...currentUser,
-        ...data
-      });
+  const saveUserCredentials = async (record) => {
+    try {
+      const credentials = await callSchool("saveSchoolUser", record);
+      return credentials;
+    } catch (error) {
+      alert(error.message || "保存できませんでした。");
+      return null;
     }
   };
-
-  const deleteUser = (uid) => {
-    if (uid === currentUserId) {
-      alert("自分自身は削除できません");
-      return;
-    }
-
-    remove(ref(db, `users/${uid}`));
+  const updateUser = async (uid, data) => {
+    try { await update(ref(db, `users/${uid}`), data); }
+    catch (error) { alert(error.message || "ユーザーを更新できませんでした。"); }
   };
-
-  const importUsersFromCsv = (e) => {
-    const file = e.target.files[0];
+  const deleteUser = async (uid) => {
+    if (uid === currentUserId) return;
+    if (!window.confirm("このユーザーのログインを無効化しますか？編集履歴は保持されます。")) return;
+    try { await callSchool("disableSchoolUser", { uid }); }
+    catch (error) { alert(error.message || "無効化できませんでした。"); }
+  };
+  const importUsersFromCsv = async (event) => {
+    const input = event.target;
+    const file = input.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-
-    reader.onload = async (event) => {
-      const text = String(event.target.result || "");
-
-      const lines = text
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-
-      if (lines.length <= 1) {
-        alert("CSVにデータがありません");
-        return;
+    let count = 0;
+    const generatedCredentials = [];
+    try {
+      const records = parseSchoolCsv(await file.text());
+      for (const record of records) {
+        generatedCredentials.push(await callSchool("saveSchoolUser", record));
+        count += 1;
       }
-
-      const header = lines[0].split(",").map((h) => h.trim());
-
-      const nameIndex = header.indexOf("name");
-      const roleIndex = header.indexOf("role");
-      const colorIndex = header.indexOf("color");
-
-      if (nameIndex === -1) {
-        alert("CSVに name 列が必要です");
-        return;
-      }
-
-      let count = 0;
-
-      for (let i = 1; i < lines.length; i++) {
-        const columns = lines[i].split(",").map((c) => c.trim());
-
-        const name = columns[nameIndex];
-        const role = roleIndex !== -1 ? columns[roleIndex] : "student";
-        const color = colorIndex !== -1 ? columns[colorIndex] : "#fff176";
-
-        if (!name) continue;
-
-        await set(push(ref(db, "users")), {
-          name,
-          role: role === "admin" ? "admin" : "student",
-          color: color || "#fff176",
-          createdAt: serverTimestamp()
-        });
-
-        count++;
-      }
-
-      alert(`${count}人のメンバーを追加しました`);
-      e.target.value = "";
-    };
-
-    reader.readAsText(file, "UTF-8");
+      alert(`${count}人を登録しました。発行されたIDとログインコードを管理画面で確認してください。`);
+    } catch (error) { alert(`${count}人を登録した時点で停止しました。${error.message}`); }
+    finally { input.value = ""; }
+    return generatedCredentials;
   };
+
+  if (!authReady) return <div className="login-page"><p role="status">ログイン状態を確認中…</p></div>;
 
   if (!currentUser) {
     return (
       <LoginPage
-        loginName={loginName}
-        onLoginNameChange={setLoginName}
+        loginId={loginId}
+        loginCode={loginCode}
+        onLoginIdChange={setLoginId}
+        onLoginCodeChange={setLoginCode}
+        busy={loginBusy}
+        error={loginError}
         onLogin={login}
       />
     );
@@ -2509,21 +2457,29 @@ const handleUpload = async (event) => {
     return (
       <AdminPage
         users={users}
+        boards={allBoards}
+        boardsLoading={allBoardsLoading}
+        boardsError={allBoardsError}
         currentUserId={currentUserId}
-        onAddUser={addUser}
+        currentUser={currentUser}
         onImportUsers={importUsersFromCsv}
         onUpdateUser={updateUser}
         onDeleteUser={deleteUser}
+        onSaveLogin={saveUserCredentials}
         onBack={() => setScreen("board")}
       />
     );
   }
+
+  if (screen === "archives") return <ArchivedBoardsPage onOpen={openArchivedBoard}
+    opening={groupOpening} onBack={() => setScreen("board")} />;
 
   if (!boardId) {
     return (
       <GroupSelectionPage
         currentUser={currentUser}
         groups={selectableGroups}
+        onOpenArchives={() => setScreen("archives")}
         opening={groupOpening}
         onSelectGroup={selectGroup}
         onCreateGroup={createGroup}
@@ -2536,6 +2492,8 @@ const handleUpload = async (event) => {
   return (
     <div className="app">
       <BoardHeader
+        readOnly={boardIsCompleted}
+        onOpenArchives={() => setScreen("archives")}
         boardId={`${groupName} ／ 第${currentBoardNumber}回`}
         currentUser={currentUser}
         reflectionRecord={reflectionRecord}
@@ -2555,6 +2513,7 @@ const handleUpload = async (event) => {
         onAddCard={runIfBoardEditable(addCard)}
         onUploadMedia={runIfBoardEditable(handleUpload)}
         onOpenMembers={() => {
+          if (currentUser?.role !== "admin") return;
           setSidePanelMode("members");
           setSidePanelOpen(true);
         }}
@@ -2570,18 +2529,21 @@ const handleUpload = async (event) => {
       />
 
       <ActivityStatusBar
+        readOnly={boardIsCompleted}
         groupName={groupName}
         boardNumber={currentBoardNumber}
         status={boardMeta?.status || "active"}
-        previousNextAction={previousNextAction}
+        previousNextActions={previousNextActions}
         currentNextAction={currentNextAction}
         isAdmin={currentUser.role === "admin"}
+        submitting={submittingActivity}
         ending={endingActivity}
         onOpenNextAction={() => {
           setNextActionText(reflectionRecord?.nextAction || "");
           setNextActionOpen(true);
         }}
-        onEndActivity={endCurrentActivity}
+        onSubmitActivity={submitCurrentActivity}
+        onFinalizeActivity={finalizeCurrentActivity}
       />
 
       <main className="layout">
@@ -2672,7 +2634,7 @@ const handleUpload = async (event) => {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="drawing-toolbar">
-                        <span>{boardTool === "move" ? "この付箋に書く" : boardTool === "arrow" ? "矢印で接続中" : "ボードへの書き込み中"}</span>
+                        <span>{boardTool === "move" ? "この付箋に書く" : boardTool === "arrow" ? "矢印で接続中" : boardTool === "crop" ? "画像を選択中" : "ボードへの書き込み中"}</span>
                         <div className="card-drawing-tools">
                           <button
                             type="button"
@@ -2740,7 +2702,7 @@ const handleUpload = async (event) => {
                 return (
                   <div
                     key={mediaId}
-                    className={`board-media-item ${media.isReflectionPoint ? "is-reflection-point" : ""}`}
+                    className={`board-media-item ${media.type === "image" ? "is-image" : ""} ${media.isReflectionPoint ? "is-reflection-point" : ""} ${boardTool === "crop" && media.type === "image" ? "is-crop-selectable" : ""}`}
                     style={{
                       left: x,
                       top: y,
@@ -2790,11 +2752,39 @@ const handleUpload = async (event) => {
                     </button>
 
                     {media.type === "image" ? (
-                      <img
-                        src={media.url}
-                        alt={media.fileName || "アップロード画像"}
-                        draggable={false}
-                      />
+                      <>
+                        {boardTool === "crop" && !boardIsCompleted && (
+                          <button
+                            type="button"
+                            className="board-media-crop-select-target"
+                            aria-label={`${media.fileName || "画像"}をトリミング`}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openImageCrop(mediaId, media);
+                            }}
+                          >
+                            <span>この画像をトリミング</span>
+                          </button>
+                        )}
+                        <img
+                          src={media.url}
+                          alt={media.fileName || "アップロード画像"}
+                          draggable={false}
+                          style={media.crop ? {
+                            left: `${-100 * Number(media.crop.x) / Number(media.crop.width)}%`,
+                            top: `${-100 * Number(media.crop.y) / Number(media.crop.height)}%`,
+                            right: "auto",
+                            bottom: "auto",
+                            width: `${100 * Number(media.crop.naturalWidth) / Number(media.crop.width)}%`,
+                            height: `${100 * Number(media.crop.naturalHeight) / Number(media.crop.height)}%`,
+                            maxWidth: "none",
+                            maxHeight: "none",
+                            objectFit: "fill"
+                          } : undefined}
+                          onLoad={(event) => handleBoardImageLoad(event, mediaId, media)}
+                        />
+                      </>
                     ) : (
                       <video
                         src={media.url}
@@ -2829,7 +2819,7 @@ const handleUpload = async (event) => {
                 boardId={boardId}
                 currentUserId={currentUserId}
                 currentUser={currentUser}
-                tool={boardTool}
+                tool={boardTool === "crop" ? "move" : boardTool}
               />
               <CardConnectionLayer
                 cards={cards}
@@ -2842,14 +2832,14 @@ const handleUpload = async (event) => {
           </div>
         </section>
 
-        {sidePanelOpen && (
+        {sidePanelOpen && (sidePanelMode === "cards" || currentUser?.role === "admin") && (
           <aside className="side-panel tablet-side-panel">
             <div className="side-panel-header">
-              <h2>{sidePanelMode === "members" ? "参加中のユーザー" : "付箋一覧"}</h2>
+              <h2>{sidePanelMode === "members" && currentUser?.role === "admin" ? "参加中のユーザー" : "付箋一覧"}</h2>
               <button onClick={() => setSidePanelOpen(false)}>×</button>
             </div>
 
-            {sidePanelMode === "members" && <MemberPanel members={members} />}
+            {sidePanelMode === "members" && currentUser?.role === "admin" && <MemberPanel members={members} />}
             {sidePanelMode === "cards" && (
               <StickyNoteList
                 cards={cards}
@@ -2861,7 +2851,7 @@ const handleUpload = async (event) => {
         )}
       </main>
 
-      {currentUser?.role === "admin" && (
+      {currentUser?.role === "admin" && !viewingArchive && (
         <AdminFeedbackFeature
           boardId={boardId}
           currentUserId={currentUserId}
@@ -2878,7 +2868,20 @@ const handleUpload = async (event) => {
         onSave={saveNextAction}
       />
 
+      {imageCropTarget && (
+        <ImageCropDialog
+          key={imageCropTarget.mediaId}
+          src={imageCropTarget.media.url}
+          initialCrop={imageCropTarget.media.crop}
+          onCancel={() => setImageCropTarget(null)}
+          onCrop={saveImageCrop}
+        />
+      )}
+
       <ReflectionDialog
+        readOnly={boardIsCompleted}
+        reflectionReadOnly={false}
+        allowDeleteReflection={!boardIsCompleted}
         open={reflectionOpen}
         onClose={closeReflection}
         historyEvents={historyEvents}
