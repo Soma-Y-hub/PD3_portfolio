@@ -9,8 +9,6 @@ export default function BoardHeader({
   onClearBoardDrawing,
   onAddCard,
   onUploadMedia,
-  onOpenMembers,
-  onOpenCards,
   onOpenArchives,
   onOpenReflection,
   onExportReflectionCsv,
@@ -31,16 +29,16 @@ export default function BoardHeader({
         </p>
       </div>
 
-      <button
-        type="button"
-        className="board-archive-shortcut"
-        onClick={onOpenArchives}
-        title="閲覧できる終了済みボードを開きます"
-      >
-        過去のボード
-      </button>
-
       <div className="header-buttons tablet-toolbar">
+        <button
+          type="button"
+          className="board-archive-shortcut"
+          onClick={onOpenArchives}
+          title="閲覧できる終了済みボードを開きます"
+        >
+          過去のボード
+        </button>
+
         <fieldset disabled={readOnly} className="toolbar-group toolbar-create school-toolbar-fieldset" aria-label="追加">
           <span className="toolbar-group-label">追加</span>
           <button className="add-button" onClick={onAddCard}>＋付箋</button>
@@ -126,14 +124,6 @@ export default function BoardHeader({
             </>
           )}
         </fieldset>
-
-        <div className="toolbar-group" aria-label="表示">
-          <span className="toolbar-group-label">表示</span>
-          {currentUser.role === "admin" && (
-            <button onClick={onOpenMembers}>参加者</button>
-          )}
-          <button onClick={onOpenCards}>付箋一覧</button>
-        </div>
 
         <button className="reflection-button" onClick={onOpenReflection}>
           {readOnly ? "タイムラプスを見る" : "活動履歴・振り返り"}

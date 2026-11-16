@@ -1,3 +1,4 @@
+import { useState } from "react";
 import PlaybackDrawingCanvas from "../PlaybackDrawingCanvas";
 import { getArrowPath, getCurrentPoints } from "../board/CardConnectionLayer";
 import StudentTeacherFeedbackCard from "../feedback/StudentTeacherFeedbackCard";
@@ -37,6 +38,7 @@ export default function ReflectionDialog({
   boardId,
   currentUserId
 }) {
+  const [playbackZoom, setPlaybackZoom] = useState(1);
   if (!open) return null;
 
   return (
@@ -78,6 +80,10 @@ export default function ReflectionDialog({
                     <option value={300}>標準</option>
                     <option value={600}>速い</option>
                   </select>
+                  <button type="button" onClick={() => setPlaybackZoom((zoom) => Math.max(0.25, Math.round((zoom - 0.1) * 100) / 100))} disabled={playbackZoom <= 0.25} aria-label="タイムラプスを縮小">−</button>
+                  <span className="simple-timelapse-zoom-value">{Math.round(playbackZoom * 100)}%</span>
+                  <button type="button" onClick={() => setPlaybackZoom((zoom) => Math.min(2.5, Math.round((zoom + 0.1) * 100) / 100))} disabled={playbackZoom >= 2.5} aria-label="タイムラプスを拡大">＋</button>
+                  <button type="button" onClick={() => setPlaybackZoom(1)}>100%</button>
                   <time>{playbackTimestamp ? formatTime(playbackTimestamp) : "履歴なし"}</time>
                 </div>
 
@@ -95,6 +101,14 @@ export default function ReflectionDialog({
                 />
 
                 <div className="simple-timelapse-board">
+                  <div
+                    className="simple-timelapse-board-scaled"
+                    style={{ width: 2200 * playbackZoom, height: 1400 * playbackZoom }}
+                  >
+                  <div
+                    className="simple-timelapse-board-canvas"
+                    style={{ transform: `scale(${playbackZoom})` }}
+                  >
                   <svg
                     className="simple-playback-connection-layer"
                     viewBox="0 0 2200 1400"
@@ -150,6 +164,8 @@ export default function ReflectionDialog({
                   {historyEvents.length === 0 && (
                     <div className="reflection-mini-empty">履歴がありません</div>
                   )}
+                  </div>
+                  </div>
                 </div>
               </section>
 

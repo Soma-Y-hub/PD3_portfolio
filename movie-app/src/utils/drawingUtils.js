@@ -20,9 +20,10 @@ export const getCanvasPixelRatio = (canvas) => {
 };
 
 /**
- * canvasの内部解像度を表示サイズに合わせる。
- * 巨大なボードCanvasではmaxPixelRatioを1にすると、
- * 高DPI端末でのメモリ消費と描画遅延を大幅に抑えられる。
+ * canvasの内部解像度を、画面上の表示サイズに合わせる。
+ *
+ * canvas.width / canvas.heightを書き換えると
+ * canvas上の描画内容は一度消える。
  */
 export const resizeCanvasToDisplaySize = (canvas, options = {}) => {
   if (!canvas) return false;
@@ -51,17 +52,38 @@ export const resizeCanvasToDisplaySize = (canvas, options = {}) => {
   return true;
 };
 
+/**
+ * canvas全体を消去する。
+ */
 export const clearCanvas = (canvas) => {
   if (!canvas) return;
+
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
 
   ctx.save();
+
+  // 拡大率などの変換を一度解除する
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.clearRect(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
   ctx.restore();
 };
 
+/**
+ * Firebaseに保存されている1つの線分を描画する。
+ *
+ * coordinateMode === "pixel"
+ *   新しいピクセル座標形式
+ *
+ * coordinateModeがない
+ *   以前の0～1座標形式
+ */
 export const drawSegmentOnCanvas = (canvas, segment) => {
   if (!canvas || !segment) return;
 
@@ -70,6 +92,7 @@ export const drawSegmentOnCanvas = (canvas, segment) => {
 
   const displayWidth = canvas.clientWidth;
   const displayHeight = canvas.clientHeight;
+
   if (displayWidth === 0 || displayHeight === 0) return;
 
   const pixelRatio = getCanvasPixelRatio(canvas);
@@ -114,15 +137,9 @@ export const drawSegmentOnCanvas = (canvas, segment) => {
   ctx.moveTo(convertedPoints[0].x, convertedPoints[0].y);
 
   for (let i = 1; i < convertedPoints.length; i += 1) {
-    const previous = convertedPoints[i - 1];
-    const current = convertedPoints[i];
-    const middleX = (previous.x + current.x) / 2;
-    const middleY = (previous.y + current.y) / 2;
-    ctx.quadraticCurveTo(previous.x, previous.y, middleX, middleY);
+    ctx.lineTo(convertedPoints[i].x, convertedPoints[i].y);
   }
 
-  const last = convertedPoints[convertedPoints.length - 1];
-  ctx.lineTo(last.x, last.y);
   ctx.stroke();
   ctx.restore();
 };

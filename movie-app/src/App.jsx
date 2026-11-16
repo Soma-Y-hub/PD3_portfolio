@@ -29,7 +29,6 @@ import ArchivedBoardsPage from "./components/ArchivedBoardsPage";
 import {
   DRAWING_COLOR,
   DRAWING_WIDTH_PX,
-  DRAWING_FLUSH_INTERVAL_MS,
   REFLECTION_PROMPT
 } from "./constants/appConstants";
 import { clamp } from "./utils/commonUtils";
@@ -129,9 +128,10 @@ export default function App() {
   const [resizingCard, setResizingCard] = useState(null);
 
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
-  const [sidePanelMode, setSidePanelMode] = useState("members");
+  const [sidePanelMode, setSidePanelMode] = useState("cards");
 
   const [timelapseOpen, setTimelapseOpen] = useState(false);
+  const [timelapseZoom, setTimelapseZoom] = useState(1);
   const [historyEvents, setHistoryEvents] = useState([]);
   const [playbackPosition, setPlaybackPosition] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState(300);
@@ -1668,19 +1668,12 @@ const saveImageCrop = async (crop) => {
     };
   };
 
-  const drawLocalLine = (
-    canvas,
-    fromPoint,
-    toPoint
-  ) => {
+  const drawLocalLine = (canvas, fromPoint, toPoint) => {
     drawSegmentOnCanvas(canvas, {
       coordinateMode: "pixel",
       widthPx: DRAWING_WIDTH_PX,
       color: DRAWING_COLOR,
-      points: [
-        fromPoint,
-        toPoint
-      ]
+      points: [fromPoint, toPoint]
     });
   };
 
@@ -1789,11 +1782,7 @@ const saveImageCrop = async (crop) => {
         createdAt: timestamp
       },
 
-      /*
-       * 付箋の最終更新日時。
-       */
-      [`cards/${drawing.cardId}/updatedAt`]:
-        timestamp,
+      [`cards/${drawing.cardId}/updatedAt`]: timestamp,
 
       /*
        * タイムラプス用の操作履歴。
@@ -1865,7 +1854,6 @@ const saveImageCrop = async (crop) => {
     };
 
     drawLocalLine(canvas, point, point);
-    flushDrawingSegment();
   };
 
   const drawOnCard = (
@@ -1905,35 +1893,15 @@ const saveImageCrop = async (crop) => {
         canvas
       );
 
-      const previousPoint =
-        drawingRef.current.lastLocalPoint;
+      const previousPoint = drawingRef.current.lastLocalPoint;
+      if (previousPoint) drawLocalLine(canvas, previousPoint, point);
 
-      if (previousPoint) {
-        drawLocalLine(
-          canvas,
-          previousPoint,
-          point
-        );
-      }
-
-      drawingRef.current.pendingPoints.push(
-        point
-      );
-
-      drawingRef.current.lastLocalPoint =
-        point;
+      drawingRef.current.pendingPoints.push(point);
+      drawingRef.current.lastLocalPoint = point;
     });
 
-    /*
-     * 約40ミリ秒ごとにFirebaseへ送信する。
-     */
-    if (
-      performance.now() -
-      drawingRef.current.lastFlushAt >=
-      DRAWING_FLUSH_INTERVAL_MS
-    ) {
-      flushDrawingSegment();
-    }
+    // ボードの筆記と同様に、書いている間は端末内だけで描画する。
+    // 保存と履歴追加はstopDrawOnCardで一筆の終了時に実行する。
   };
 
   const stopDrawOnCard = (
@@ -2512,15 +2480,6 @@ const saveImageCrop = async (crop) => {
         onClearBoardDrawing={runIfBoardEditable(clearBoardDrawing)}
         onAddCard={runIfBoardEditable(addCard)}
         onUploadMedia={runIfBoardEditable(handleUpload)}
-        onOpenMembers={() => {
-          if (currentUser?.role !== "admin") return;
-          setSidePanelMode("members");
-          setSidePanelOpen(true);
-        }}
-        onOpenCards={() => {
-          setSidePanelMode("cards");
-          setSidePanelOpen(true);
-        }}
         onOpenReflection={openReflection}
         onExportReflectionCsv={exportReflectionCsv}
         onOpenAdmin={() => setScreen("admin")}
@@ -2835,7 +2794,7 @@ const saveImageCrop = async (crop) => {
         {sidePanelOpen && (sidePanelMode === "cards" || currentUser?.role === "admin") && (
           <aside className="side-panel tablet-side-panel">
             <div className="side-panel-header">
-              <h2>{sidePanelMode === "members" && currentUser?.role === "admin" ? "参加中のユーザー" : "付箋一覧"}</h2>
+              <h2>{sidePanelMode === "members" ? "参加者" : "付箋一覧"}</h2>
               <button onClick={() => setSidePanelOpen(false)}>×</button>
             </div>
 
@@ -2849,6 +2808,34 @@ const saveImageCrop = async (crop) => {
             )}
           </aside>
         )}
+        <nav className="side-panel-tab-rail" aria-label="サイドメニュー">
+          {currentUser?.role === "admin" && (
+            <button
+              type="button"
+              className={sidePanelOpen && sidePanelMode === "members" ? "active" : ""}
+              onClick={() => {
+                const close = sidePanelOpen && sidePanelMode === "members";
+                setSidePanelMode("members");
+                setSidePanelOpen(!close);
+              }}
+              aria-expanded={sidePanelOpen && sidePanelMode === "members"}
+              aria-label="参加者メニューを開閉"
+              title="参加者"
+            >参加者</button>
+          )}
+          <button
+            type="button"
+            className={sidePanelOpen && sidePanelMode === "cards" ? "active" : ""}
+            onClick={() => {
+              const close = sidePanelOpen && sidePanelMode === "cards";
+              setSidePanelMode("cards");
+              setSidePanelOpen(!close);
+            }}
+            aria-expanded={sidePanelOpen && sidePanelMode === "cards"}
+            aria-label="付箋一覧メニューを開閉"
+            title="付箋一覧"
+          >付箋一覧</button>
+        </nav>
       </main>
 
       {currentUser?.role === "admin" && !viewingArchive && (
@@ -3031,7 +3018,22 @@ const saveImageCrop = async (crop) => {
               })}
             </div>
 
-            <div className="timelapse-board">
+            <div className="timelapse-zoom-toolbar" aria-label="タイムラプスの拡大率">
+              <button type="button" onClick={() => setTimelapseZoom((zoom) => Math.max(0.25, Math.round((zoom - 0.1) * 100) / 100))} disabled={timelapseZoom <= 0.25} aria-label="縮小">−</button>
+              <span>{Math.round(timelapseZoom * 100)}%</span>
+              <button type="button" onClick={() => setTimelapseZoom((zoom) => Math.min(2.5, Math.round((zoom + 0.1) * 100) / 100))} disabled={timelapseZoom >= 2.5} aria-label="拡大">＋</button>
+              <button type="button" onClick={() => setTimelapseZoom(1)}>100%に戻す</button>
+              <span className="timelapse-zoom-hint">ボード内をスクロールして表示位置を移動</span>
+            </div>
+            <div className="timelapse-board-viewport">
+              <div
+                className="timelapse-board"
+                style={{ width: 2200 * timelapseZoom, height: 1400 * timelapseZoom }}
+              >
+              <div
+                className="timelapse-board-canvas"
+                style={{ transform: `scale(${timelapseZoom})` }}
+              >
               {Object.entries(playbackState.cards).map(([id, card]) => (
                 <div
                   key={id}
@@ -3071,6 +3073,8 @@ const saveImageCrop = async (crop) => {
               {historyEvents.length === 0 && (
                 <div className="timelapse-empty">履歴がありません。統合版導入後の操作から記録されます。</div>
               )}
+              </div>
+              </div>
             </div>
           </div>
         </div>
